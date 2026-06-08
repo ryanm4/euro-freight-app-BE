@@ -30,7 +30,7 @@ CREATE TABLE
         `color` VARCHAR(45) NULL,
         `size` VARCHAR(45) NULL,
         `country_of_origin` VARCHAR(45) NULL,
-        `unit_cost` DECIMAL(10,2) NULL,
+        `unit_cost` DECIMAL(10, 2) NULL,
         `quantity` INT NULL,
         `cartoons` INT NULL,
         `gross_weight` VARCHAR(45) NULL,
@@ -70,6 +70,12 @@ CREATE TABLE
         `client_id` INT NULL,
         `date` DATETIME NULL,
         `gdn_id` INT NULL,
+        `grn_id` INT NULL,
+        `quantity` INT NULL,
+        `created_by` VARCHAR(45) NULL,
+        `created_on` DATETIME NULL,
+        `updated_by` VARCHAR(45) NULL,
+        `updated_on` DATETIME NULL,
         PRIMARY KEY (`id`),
         UNIQUE INDEX `id_UNIQUE` (`id` ASC) VISIBLE
     );
@@ -122,6 +128,46 @@ CREATE TABLE
     `freight_tracking_app`.`shipments` (
         `id` INT NOT NULL AUTO_INCREMENT,
         `vessel_name` VARCHAR(45) NULL,
+        `status` VARCHAR(45) NULL,
+        `created_by` VARCHAR(45) NULL,
+        `created_on` DATETIME NULL,
+        `updated_by` VARCHAR(45) NULL,
+        `updated_on` DATETIME NULL,
+        PRIMARY KEY (`id`)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`goods_deliver_notes` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `client_id` INT NULL,
+        `manufacture_id` INT NULL,
+        `forwarder_id` INT NULL,
+        `date` DATETIME NULL,
+        `cartoons` VARCHAR(45) NULL,
+        `actual_cartoons` VARCHAR(45) NULL,
+        `gross_weight` VARCHAR(45) NULL,
+        `actual_gross_weight` VARCHAR(45) NULL,
+        `gross_volume` VARCHAR(45) NULL,
+        `actual_gross_volume` VARCHAR(45) NULL,
+        `status` VARCHAR(45) NULL,
+        `created_by` VARCHAR(45) NULL,
+        `created_on` DATETIME NULL,
+        `updated_by` VARCHAR(45) NULL,
+        `updated_on` DATETIME NULL,
+        `gdn_grn_ref` VARCHAR(45) NULL,
+        `vehicle_no` VARCHAR(45) NULL,
+        PRIMARY KEY (`id`)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`goods_receive_notes` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `client_id` INT NULL,
+        `manufacture_id` INT NULL,
+        `forwarder_id` INT NULL,
+        `date` DATETIME NULL,
+        `quantity` INT NULL,
+        `bill_id` INT NULL,
         `status` VARCHAR(45) NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
