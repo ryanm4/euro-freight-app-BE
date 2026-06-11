@@ -10,6 +10,8 @@ const packingListRoutes = require('./routes/packing-list/packing-list-route');
 const gdnRoutes = require('./routes/goods-dispatch-notes/gdn-routes');
 const grnRoutes = require('./routes/goods-receive-notes/grn-routes');
 const blRoutes = require('./routes/bill-of-lading/bl-route');
+const shipmentRoutes = require('./routes/shipment/shipment-routes');
+const authRoutes = require('./routes/auth/auth-route');
 
 dotenv.config({ path: './config.env' });
 const port = process.env.PORT || 8000;
@@ -39,3 +41,5 @@ app.use('/api/v1/packing_lists', packingListRoutes);
 app.use('/api/v1/goods_dispatch_notes', gdnRoutes);
 app.use('/api/v1/goods_receive_notes', grnRoutes);
 app.use('/api/v1/bill_of_lading', blRoutes);
+app.use('/api/v1/shipments', shipmentRoutes);
+app.use('/api/v1/auth', authRoutes);

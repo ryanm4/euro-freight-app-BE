@@ -175,3 +175,75 @@ CREATE TABLE
         `updated_on` DATETIME NULL,
         PRIMARY KEY (`id`)
     );
+
+CREATE TABLE
+    `freight_tracking_app`.`users` (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        email VARCHAR(150) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        full_name VARCHAR(150),
+        phone VARCHAR(20),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        role_name VARCHAR(100) NOT NULL UNIQUE,
+        description VARCHAR(255),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.user_roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        role_id INT NOT NULL,
+        assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+        UNIQUE KEY unique_user_role (user_id, role_id)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.groups (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_name VARCHAR(100) NOT NULL UNIQUE,
+        description VARCHAR(255),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.user_groups (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        group_id INT NOT NULL,
+        joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (group_id) REFERENCES `freight_tracking_app`.groups (id) ON DELETE CASCADE,
+        UNIQUE KEY unique_user_group (user_id, group_id)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.group_roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        role_id INT NOT NULL,
+        FOREIGN KEY (group_id) REFERENCES `freight_tracking_app`.groups (id) ON DELETE CASCADE,
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+        UNIQUE KEY unique_group_role (group_id, role_id)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`shipping_quantity` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `po_id` INT NOT NULL,
+        `quantity` INT NULL,
+        `type` VARCHAR(45) NULL,
+        PRIMARY KEY (`id`),
+        INDEX `po_id_idx` (`po_id` ASC) VISIBLE,
+        CONSTRAINT `po_id` FOREIGN KEY (`po_id`) REFERENCES `freight_tracking_app`.`purchase_order` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+    );
