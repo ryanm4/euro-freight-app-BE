@@ -33,29 +33,31 @@ exports.createHBL = async (req, res) => {
       container_seal_no,
       onboard_date,
       created_by,
-      grn_ids
+      grn_ids,
+      ports = []
     } = req.body;
 
-    // ===============================
-    // VALIDATION
-    // ===============================
-
+    // =====================
+    // Validate GRN IDs
+    // =====================
     if (!grn_ids) {
       throw new Error("grn_ids is required");
     }
 
-    // If sent as "1,2,3" convert to array
     if (typeof grn_ids === "string") {
-      grn_ids = grn_ids.split(",").map(id => parseInt(id.trim())).filter(Boolean);
+      grn_ids = grn_ids
+        .split(",")
+        .map(id => parseInt(id.trim()))
+        .filter(Boolean);
     }
 
     if (!Array.isArray(grn_ids) || grn_ids.length === 0) {
       throw new Error("grn_ids must be a non-empty array");
     }
 
-    // ===============================
-    // INSERT HBL
-    // ===============================
+    // =====================
+    // Insert HBL
+    // =====================
     const insertQuery = `
       INSERT INTO freight_tracking_app.hbl_hawb_tbl (
         client_id,
@@ -81,7 +83,8 @@ exports.createHBL = async (req, res) => {
         onboard_date,
         created_by,
         created_on
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
+      )
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
     `;
 
     const [result] = await connection.execute(insertQuery, [
@@ -111,9 +114,44 @@ exports.createHBL = async (req, res) => {
 
     const hblId = result.insertId;
 
-    // ===============================
-    // UPDATE GRNs (MULTIPLE)
-    // ===============================
+    // =====================
+    // Insert Multiple Ports
+    // =====================
+    if (Array.isArray(ports) && ports.length > 0) {
+      const portValues = ports.map(p => [
+        hblId,
+        clean(p.port),
+        clean(p.status),
+        clean(created_by)
+      ]);
+
+      await connection.query(
+        `
+        INSERT INTO freight_tracking_app.multi_ports
+        (
+          hbl_hawb_id,
+          port,
+          status,
+          created_by,
+          created_on
+        )
+        VALUES ?
+        `,
+        [
+          portValues.map(v => [
+            v[0],
+            v[1],
+            v[2],
+            v[3],
+            new Date()
+          ])
+        ]
+      );
+    }
+
+    // =====================
+    // Update GRNs
+    // =====================
     const placeholders = grn_ids.map(() => "?").join(",");
 
     const updateGRNQuery = `
@@ -136,10 +174,11 @@ exports.createHBL = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "HBL created and GRNs updated successfully",
+      message: "HBL created successfully",
       data: {
         hbl_id: hblId,
         updated_grns: grn_ids,
+        ports_count: ports.length,
         grn_updated_count: updateResult.affectedRows
       }
     });
@@ -149,7 +188,7 @@ exports.createHBL = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Error creating HBL and updating GRNs",
+      message: "Error creating HBL",
       error: error.message
     });
 
@@ -180,8 +219,8 @@ exports.updateHBL = async (req, res) => {
       eta,
       actual_etd,
       actual_eta,
-      arrival_port,
-      inland_location,
+      arrival_port, // STRING (unchanged)
+      inland_location, // STRING (you confirmed)
       mbl_mawb_no,
       status,
       no_pieces,
@@ -191,7 +230,8 @@ exports.updateHBL = async (req, res) => {
       container_seal_no,
       onboard_date,
       updated_by,
-      grn_ids
+      grn_ids,
+      ports = [] // NEW: multi ports
     } = req.body;
 
     // =========================
@@ -199,21 +239,17 @@ exports.updateHBL = async (req, res) => {
     // =========================
     if (!id) throw new Error("HBL id is required");
 
-    if (grn_ids) {
-      if (typeof grn_ids === "string") {
-        grn_ids = grn_ids
-          .split(",")
-          .map((x) => parseInt(x.trim()))
-          .filter(Boolean);
-      }
-
-      if (!Array.isArray(grn_ids)) {
-        throw new Error("grn_ids must be array or comma-separated string");
-      }
+    if (typeof grn_ids === "string") {
+      grn_ids = grn_ids
+        .split(",")
+        .map((x) => parseInt(x.trim()))
+        .filter(Boolean);
     }
 
+    if (!Array.isArray(grn_ids)) grn_ids = [];
+
     // =========================
-    // 1. UPDATE HBL
+    // 1. UPDATE HBL (MAIN TABLE)
     // =========================
     const updateHBLQuery = `
       UPDATE freight_tracking_app.hbl_hawb_tbl
@@ -229,8 +265,8 @@ exports.updateHBL = async (req, res) => {
         eta = ?,
         actual_etd = ?,
         actual_eta = ?,
-        arrival_port = ?,
-        inland_location = ?,
+        arrival_port = ?,        -- STRING (UNCHANGED)
+        inland_location = ?,     -- STRING (UNCHANGED)
         mbl_mawb_no = ?,
         status = ?,
         no_pieces = ?,
@@ -289,20 +325,47 @@ exports.updateHBL = async (req, res) => {
     // =========================
     // 3. SET NEW GRN LINKS
     // =========================
-    if (grn_ids && grn_ids.length > 0) {
+    if (grn_ids.length > 0) {
       const placeholders = grn_ids.map(() => "?").join(",");
 
-      const updateGRNQuery = `
+      await connection.execute(
+        `
         UPDATE freight_tracking_app.goods_receive_notes
         SET bill_id = ?, updated_by = ?, updated_on = NOW()
         WHERE id IN (${placeholders})
-      `;
+        `,
+        [id, updated_by || null, ...grn_ids]
+      );
+    }
 
-      await connection.execute(updateGRNQuery, [
+    // =========================
+    // 4. UPDATE MULTI PORTS
+    // =========================
+
+    // delete old ports
+    await connection.execute(
+      `DELETE FROM freight_tracking_app.multi_ports WHERE hbl_hawb_id = ?`,
+      [id]
+    );
+
+    // insert new ports
+    if (Array.isArray(ports) && ports.length > 0) {
+      const values = ports.map(p => [
         id,
+        p.port,
+        p.status || null,
         updated_by || null,
-        ...grn_ids
+        new Date()
       ]);
+
+      await connection.query(
+        `
+        INSERT INTO freight_tracking_app.multi_ports
+        (hbl_hawb_id, port, status, created_by, created_on)
+        VALUES ?
+        `,
+        [values]
+      );
     }
 
     await connection.commit();
@@ -312,9 +375,11 @@ exports.updateHBL = async (req, res) => {
       message: "HBL updated successfully",
       data: {
         hbl_id: id,
-        linked_grns: grn_ids || []
+        linked_grns: grn_ids,
+        ports_count: ports.length
       }
     });
+
   } catch (error) {
     await connection.rollback();
 
@@ -323,6 +388,7 @@ exports.updateHBL = async (req, res) => {
       message: "Error updating HBL",
       error: error.message
     });
+
   } finally {
     connection.release();
   }
@@ -334,21 +400,48 @@ exports.getAllHBL = async (req, res) => {
     const query = `
       SELECT 
         h.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', g.id,
-            'client_id', g.client_id,
-            'manufacture_id', g.manufacture_id,
-            'forwarder_id', g.forwarder_id,
-            'date', g.date,
-            'quantity', g.quantity,
-            'status', g.status
-          )
-        ) AS grns
+
+        -- GRNs (pre-aggregated)
+        COALESCE(g.grns, JSON_ARRAY()) AS grns,
+
+        -- PORTS (pre-aggregated)
+        COALESCE(p.ports, JSON_ARRAY()) AS ports
+
       FROM freight_tracking_app.hbl_hawb_tbl h
-      LEFT JOIN freight_tracking_app.goods_receive_notes g 
-        ON g.bill_id = h.id
-      GROUP BY h.id
+
+      LEFT JOIN (
+        SELECT 
+          bill_id,
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', id,
+              'client_id', client_id,
+              'manufacture_id', manufacture_id,
+              'forwarder_id', forwarder_id,
+              'date', date,
+              'quantity', quantity,
+              'status', status
+            )
+          ) AS grns
+        FROM freight_tracking_app.goods_receive_notes
+        GROUP BY bill_id
+      ) g ON g.bill_id = h.id
+
+      LEFT JOIN (
+        SELECT 
+          hbl_hawb_id,
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', id,
+              'port', port,
+              'status', status,
+              'created_on', created_on
+            )
+          ) AS ports
+        FROM freight_tracking_app.multi_ports
+        GROUP BY hbl_hawb_id
+      ) p ON p.hbl_hawb_id = h.id
+
       ORDER BY h.id DESC
     `;
 
@@ -377,27 +470,51 @@ exports.getHBLById = async (req, res) => {
     const query = `
       SELECT 
         h.*,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', g.id,
-            'client_id', g.client_id,
-            'manufacture_id', g.manufacture_id,
-            'forwarder_id', g.forwarder_id,
-            'date', g.date,
-            'quantity', g.quantity,
-            'status', g.status
-          )
-        ) AS grns
+
+        COALESCE(g.grns, JSON_ARRAY()) AS grns,
+        COALESCE(p.ports, JSON_ARRAY()) AS ports
+
       FROM freight_tracking_app.hbl_hawb_tbl h
-      LEFT JOIN freight_tracking_app.goods_receive_notes g 
-        ON g.bill_id = h.id
+
+      LEFT JOIN (
+        SELECT 
+          bill_id,
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', id,
+              'client_id', client_id,
+              'manufacture_id', manufacture_id,
+              'forwarder_id', forwarder_id,
+              'date', date,
+              'quantity', quantity,
+              'status', status
+            )
+          ) AS grns
+        FROM freight_tracking_app.goods_receive_notes
+        GROUP BY bill_id
+      ) g ON g.bill_id = h.id
+
+      LEFT JOIN (
+        SELECT 
+          hbl_hawb_id,
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', id,
+              'port', port,
+              'status', status,
+              'created_on', created_on
+            )
+          ) AS ports
+        FROM freight_tracking_app.multi_ports
+        GROUP BY hbl_hawb_id
+      ) p ON p.hbl_hawb_id = h.id
+
       WHERE h.id = ?
-      GROUP BY h.id
     `;
 
     const [rows] = await db.execute(query, [id]);
 
-    if (rows.length === 0) {
+    if (!rows.length) {
       return res.status(404).json({
         success: false,
         message: "HBL not found"

@@ -113,7 +113,7 @@ CREATE TABLE
 
 CREATE TABLE
     `freight_tracking_app`.`multi_ports` (
-        `id` INT NOT NULL,
+        `id` INT NOT NULL AUTO_INCREMENT,
         `hbl_hawb_id` INT NOT NULL,
         `port` VARCHAR(45) NULL,
         `status` VARCHAR(45) NULL,
