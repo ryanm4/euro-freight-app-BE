@@ -169,6 +169,7 @@ CREATE TABLE
         `quantity` INT NULL,
         `bill_id` INT NULL,
         `status` VARCHAR(45) NULL,
+        `comments` TEXT NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,

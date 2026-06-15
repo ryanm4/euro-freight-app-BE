@@ -13,6 +13,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
             date,
             quantity,
             status,
+            comments,
             created_by,
             packing_list_ids
         } = req.body;
@@ -93,10 +94,11 @@ exports.createGoodsReceiveNote = async (req, res) => {
         date,
         quantity,
         status,
+        comments,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
             [
                 client_id,
@@ -105,6 +107,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
                 date,
                 quantityNum,
                 status,
+                comments,
                 created_by
             ]
         );
@@ -166,6 +169,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
             date,
             quantity,
             status,
+            comments,
             updated_by,
             packing_list_ids
         } = req.body;
@@ -276,6 +280,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         date = ?,
         quantity = ?,
         status = ?,
+        comments = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
@@ -287,6 +292,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
                 date,
                 quantityNum,
                 status,
+                comments,
                 updated_by,
                 grnId
             ]
@@ -343,6 +349,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
         grn.quantity,
         grn.status,
         grn.bill_id,
+        grn.comments,
         grn.created_by,
         grn.created_on,
         grn.updated_by,
@@ -410,6 +417,7 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
         quantity,
         status,
         bill_id,
+        comments,
         created_by,
         created_on,
         updated_by,
