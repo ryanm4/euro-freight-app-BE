@@ -6,6 +6,7 @@ exports.createGDN = async (req, res) => {
 
     try {
         await connection.beginTransaction();
+
         const {
             client_id,
             manufacture_id,
@@ -24,27 +25,27 @@ exports.createGDN = async (req, res) => {
             vehicle_no
         } = req.body;
 
-        // Insert GDN record
+        // 1. Insert GDN
         const insertQuery = `
-      INSERT INTO freight_tracking_app.goods_deliver_notes (
-        client_id,
-        manufacture_id,
-        forwarder_id,
-        date,
-        cartoons,
-        actual_cartoons,
-        gross_weight,
-        actual_gross_weight,
-        gross_volume,
-        actual_gross_volume,
-        status,
-        created_by,
-        created_on,
-        gdn_grn_ref,
-        vehicle_no
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
-    `;
+            INSERT INTO freight_tracking_app.goods_deliver_notes (
+                client_id,
+                manufacture_id,
+                forwarder_id,
+                date,
+                cartoons,
+                actual_cartoons,
+                gross_weight,
+                actual_gross_weight,
+                gross_volume,
+                actual_gross_volume,
+                status,
+                created_by,
+                created_on,
+                gdn_grn_ref,
+                vehicle_no
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
+        `;
 
         const [result] = await connection.query(insertQuery, [
             client_id,
@@ -65,42 +66,56 @@ exports.createGDN = async (req, res) => {
 
         const gdnId = result.insertId;
 
-        // Update selected packing lists
+        // 2. Update Packing Lists → attach GDN
         if (packing_list_ids && packing_list_ids.length > 0) {
-            const updateQuery = `
-        UPDATE freight_tracking_app.packing_list
-        SET
-          gdn_id = ?,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE id IN (?)
-      `;
 
-            await connection.query(updateQuery, [
-                gdnId,
-                created_by,
-                packing_list_ids
-            ]);
+            await connection.query(
+                `
+                UPDATE freight_tracking_app.packing_list
+                SET
+                    gdn_id = ?,
+                    updated_by = ?,
+                    updated_on = NOW()
+                WHERE id IN (?)
+                `,
+                [gdnId, created_by, packing_list_ids]
+            );
         }
+
+        // 3. Update Purchase Orders → set cargo dispatch date from GDN
+        await connection.query(
+            `
+            UPDATE freight_tracking_app.purchase_order po
+            INNER JOIN freight_tracking_app.packing_list pl
+                ON po.packing_list_id = pl.id
+            SET
+                po.cargo_dispatch_date = ?,
+                po.updated_by = ?,
+                po.updated_on = NOW()
+            WHERE pl.gdn_id = ?
+            `,
+            [date, created_by, gdnId]
+        );
 
         await connection.commit();
 
-        res.status(201).json({
+        return res.status(201).json({
             success: true,
-            message: "Goods Deliver Receive Note created successfully",
+            message: "Goods Deliver Note created successfully and Purchase Orders updated",
             gdn_id: gdnId
         });
 
     } catch (error) {
         await connection.rollback();
 
-        console.error(error);
+        console.error("GDN Creation Error:", error);
 
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
-            message: "Error creating Goods Deliver Receive Note",
+            message: "Error creating Goods Deliver Note",
             error: error.message
         });
+
     } finally {
         connection.release();
     }
