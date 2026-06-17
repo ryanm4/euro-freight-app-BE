@@ -122,13 +122,13 @@ exports.createHBL = async (req, res) => {
         hblId,
         clean(p.port),
         clean(p.status),
-        clean(created_by)
+        clean(created_by),
+        new Date()
       ]);
 
       await connection.query(
         `
-        INSERT INTO freight_tracking_app.multi_ports
-        (
+        INSERT INTO freight_tracking_app.multi_ports (
           hbl_hawb_id,
           port,
           status,
@@ -137,15 +137,7 @@ exports.createHBL = async (req, res) => {
         )
         VALUES ?
         `,
-        [
-          portValues.map(v => [
-            v[0],
-            v[1],
-            v[2],
-            v[3],
-            new Date()
-          ])
-        ]
+        [portValues]
       );
     }
 
@@ -156,19 +148,49 @@ exports.createHBL = async (req, res) => {
 
     const updateGRNQuery = `
       UPDATE freight_tracking_app.goods_receive_notes
-      SET bill_id = ?, updated_by = ?, updated_on = NOW()
+      SET
+        bill_id = ?,
+        updated_by = ?,
+        updated_on = NOW()
       WHERE id IN (${placeholders})
     `;
 
-    const [updateResult] = await connection.execute(updateGRNQuery, [
-      hblId,
-      created_by || null,
-      ...grn_ids
-    ]);
+    const [updateResult] = await connection.execute(
+      updateGRNQuery,
+      [
+        hblId,
+        created_by || null,
+        ...grn_ids
+      ]
+    );
 
     if (updateResult.affectedRows === 0) {
       throw new Error("No GRNs updated. Check grn_ids");
     }
+
+    // =====================
+    // Update Purchase Orders
+    // purchase_order -> packing_list -> goods_receive_notes
+    // =====================
+    const updatePOQuery = `
+      UPDATE freight_tracking_app.purchase_order po
+      INNER JOIN freight_tracking_app.packing_list pl
+        ON po.packing_list_id = pl.id
+      SET
+        po.hbl_no = ?,
+        po.updated_by = ?,
+        po.updated_on = NOW()
+      WHERE pl.grn_id IN (${placeholders})
+    `;
+
+    const [poUpdateResult] = await connection.execute(
+      updatePOQuery,
+      [
+        clean(mbl_mawb_no),
+        created_by || null,
+        ...grn_ids
+      ]
+    );
 
     await connection.commit();
 
@@ -179,7 +201,8 @@ exports.createHBL = async (req, res) => {
         hbl_id: hblId,
         updated_grns: grn_ids,
         ports_count: ports.length,
-        grn_updated_count: updateResult.affectedRows
+        grn_updated_count: updateResult.affectedRows,
+        po_updated_count: poUpdateResult.affectedRows
       }
     });
 
