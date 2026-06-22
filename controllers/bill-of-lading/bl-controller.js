@@ -60,38 +60,38 @@ exports.createHBL = async (req, res) => {
     // Insert HBL
     // =====================
     const insertQuery = `
-  INSERT INTO freight_tracking_app.hbl_hawb_tbl (
-    client_id,
-    manufacture_id,
-    date,
-    type,
-    house_bl_no,
-    shipment_id,
-    planned_vessel_name,
-    voyage_no,
-    etd,
-    eta,
-    actual_etd,
-    actual_eta,
-    arrival_port,
-    inland_location,
-    mbl_mawb_no,
-    status,
-    no_pieces,
-    gross_weight,
-    chargeable_weight,
-    cbm,
-    container_seal_no,
-    onboard_date,
-    created_by,
-    created_on
-  )
-  VALUES (
-    ?,?,?,?,?,?,?,?,?,?,
-    ?,?,?,?,?,?,?,?,?,?,
-    ?,?,?,NOW()
-  )
-`;
+        INSERT INTO freight_tracking_app.hbl_hawb_tbl (
+          client_id,
+          manufacture_id,
+          date,
+          type,
+          house_bl_no,
+          shipment_id,
+          planned_vessel_name,
+          voyage_no,
+          etd,
+          eta,
+          actual_etd,
+          actual_eta,
+          arrival_port,
+          inland_location,
+          mbl_mawb_no,
+          status,
+          no_pieces,
+          gross_weight,
+          chargeable_weight,
+          cbm,
+          container_seal_no,
+          onboard_date,
+          created_by,
+          created_on
+        )
+        VALUES (
+          ?,?,?,?,?,?,?,?,?,?,
+          ?,?,?,?,?,?,?,?,?,?,
+          ?,?,?,NOW()
+        )
+      `;
 
     const [result] = await connection.execute(insertQuery, [
       clean(client_id),
