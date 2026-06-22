@@ -188,6 +188,7 @@ exports.updatePurchaseOrder = async (req, res) => {
         const {
             po_number,
             po_quantity,
+            completed_qty,
             ex_factory_date,
             shipping_mode,
             final_destination,
@@ -226,6 +227,7 @@ exports.updatePurchaseOrder = async (req, res) => {
             SET
                 po_number=?,
                 po_quantity=?,
+                completed_qty=?,
                 ex_factory_date=?,
                 shipping_mode=?,
                 final_destination=?,
@@ -243,6 +245,7 @@ exports.updatePurchaseOrder = async (req, res) => {
             [
                 po_number,
                 po_quantity,
+                completed_qty,
                 ex_factory_date,
                 shipping_mode,
                 final_destination,

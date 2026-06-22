@@ -3,6 +3,7 @@ CREATE TABLE
         `id` INT NOT NULL AUTO_INCREMENT,
         `po_number` VARCHAR(45) NULL,
         `po_quantity` INT NULL,
+        `completed_qty` INT NULL,
         `ex_factory_date` VARCHAR(45) NULL,
         `shipping_mode` VARCHAR(45) NULL,
         `final_destination` VARCHAR(45) NULL,
