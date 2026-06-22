@@ -91,6 +91,7 @@ CREATE TABLE
         `manufacture_id` INT NULL,
         `date` DATETIME NULL,
         `type` VARCHAR(45) NULL,
+        `house_bl_no` VARCHAR(45) NULL,
         `shipment_id` INT NULL,
         `planned_vessel_name` VARCHAR(45) NULL,
         `voyage_no` VARCHAR(45) NULL,

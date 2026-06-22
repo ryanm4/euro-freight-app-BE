@@ -15,6 +15,7 @@ exports.createHBL = async (req, res) => {
       manufacture_id,
       date,
       type,
+      house_bl_no,
       shipment_id,
       planned_vessel_name,
       voyage_no,
@@ -59,39 +60,45 @@ exports.createHBL = async (req, res) => {
     // Insert HBL
     // =====================
     const insertQuery = `
-      INSERT INTO freight_tracking_app.hbl_hawb_tbl (
-        client_id,
-        manufacture_id,
-        date,
-        type,
-        shipment_id,
-        planned_vessel_name,
-        voyage_no,
-        etd,
-        eta,
-        actual_etd,
-        actual_eta,
-        arrival_port,
-        inland_location,
-        mbl_mawb_no,
-        status,
-        no_pieces,
-        gross_weight,
-        chargeable_weight,
-        cbm,
-        container_seal_no,
-        onboard_date,
-        created_by,
-        created_on
-      )
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
-    `;
+  INSERT INTO freight_tracking_app.hbl_hawb_tbl (
+    client_id,
+    manufacture_id,
+    date,
+    type,
+    house_bl_no,
+    shipment_id,
+    planned_vessel_name,
+    voyage_no,
+    etd,
+    eta,
+    actual_etd,
+    actual_eta,
+    arrival_port,
+    inland_location,
+    mbl_mawb_no,
+    status,
+    no_pieces,
+    gross_weight,
+    chargeable_weight,
+    cbm,
+    container_seal_no,
+    onboard_date,
+    created_by,
+    created_on
+  )
+  VALUES (
+    ?,?,?,?,?,?,?,?,?,?,
+    ?,?,?,?,?,?,?,?,?,?,
+    ?,?,?,NOW()
+  )
+`;
 
     const [result] = await connection.execute(insertQuery, [
       clean(client_id),
       clean(manufacture_id),
       clean(date),
       clean(type),
+      clean(house_bl_no),
       clean(shipment_id),
       clean(planned_vessel_name),
       clean(voyage_no),
@@ -235,6 +242,7 @@ exports.updateHBL = async (req, res) => {
       manufacture_id,
       date,
       type,
+      house_bl_no,
       shipment_id,
       planned_vessel_name,
       voyage_no,
@@ -281,6 +289,7 @@ exports.updateHBL = async (req, res) => {
         manufacture_id = ?,
         date = ?,
         type = ?,
+        house_bl_no = ?,
         shipment_id = ?,
         planned_vessel_name = ?,
         voyage_no = ?,
@@ -308,6 +317,7 @@ exports.updateHBL = async (req, res) => {
       clean(manufacture_id),
       clean(date),
       clean(type),
+      clean(house_bl_no),
       clean(shipment_id),
       clean(planned_vessel_name),
       clean(voyage_no),
@@ -429,6 +439,7 @@ exports.getAllHBL = async (req, res) => {
 
         h.date,
         h.type,
+        h.house_bl_no,
         h.shipment_id,
         h.planned_vessel_name,
         h.voyage_no,
@@ -535,6 +546,7 @@ exports.getHBLById = async (req, res) => {
 
         h.date,
         h.type,
+        h.house_bl_no,
         h.shipment_id,
         h.planned_vessel_name,
         h.voyage_no,
