@@ -521,3 +521,76 @@ exports.getPurchaseOrderById = async (req, res) => {
 
     }
 };
+
+
+exports.updateStatus = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+    const { status, completed_qty, updated_by } = req.body;
+
+    // ensure at least one field is provided
+    if (
+      status === undefined &&
+      completed_qty === undefined &&
+      updated_by === undefined
+    ) {
+      return res.status(400).json({
+        message: "At least one field (status, completed_qty, updated_by) is required",
+      });
+    }
+
+    // dynamic query builder
+    const fields = [];
+    const values = [];
+
+    if (status !== undefined) {
+      fields.push("status = ?");
+      values.push(status);
+    }
+
+    if (completed_qty !== undefined) {
+      fields.push("completed_qty = ?");
+      values.push(completed_qty);
+    }
+
+    if (updated_by !== undefined) {
+      fields.push("updated_by = ?");
+      values.push(updated_by);
+    }
+
+    fields.push("updated_on = NOW()");
+
+    const sql = `
+      UPDATE freight_tracking_app.purchase_order
+      SET ${fields.join(", ")}
+      WHERE id = ?
+    `;
+
+    values.push(id);
+
+    const [result] = await connection.query(sql, values);
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Purchase order not found" });
+    }
+
+    await connection.commit();
+
+    res.status(200).json({
+      message: "Purchase order updated successfully",
+      id,
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Update error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  } finally {
+    connection.release();
+  }
+};
