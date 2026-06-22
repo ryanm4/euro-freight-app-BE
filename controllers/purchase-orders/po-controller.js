@@ -365,15 +365,21 @@ exports.updatePurchaseOrder = async (req, res) => {
 
 
 exports.getAllPurchaseOrders = async (req, res) => {
-
     const connection = await db.getConnection();
 
     try {
 
         const [poRows] = await connection.query(`
-            SELECT *
-            FROM freight_tracking_app.purchase_order
-            ORDER BY id DESC
+            SELECT
+                po.*,
+                supplier.name AS supplier_name,
+                forwarder.name AS freight_forwarder_name
+            FROM freight_tracking_app.purchase_order po
+            LEFT JOIN freight_tracking_app.clients supplier
+                ON po.supplier_id = supplier.id
+            LEFT JOIN freight_tracking_app.clients forwarder
+                ON po.freight_forwarder = forwarder.id
+            ORDER BY po.id DESC
         `);
 
         const [itemRows] = await connection.query(`
@@ -412,6 +418,8 @@ exports.getAllPurchaseOrders = async (req, res) => {
 
         const result = poRows.map(po => ({
             ...po,
+            supplier_id: po.supplier_name,               // replace supplier ID with name
+            freight_forwarder: po.freight_forwarder_name, // replace forwarder ID with name
             shipping_quantities: shippingMap[po.id] || [],
             items: itemsMap[po.id] || []
         }));
@@ -445,7 +453,18 @@ exports.getPurchaseOrderById = async (req, res) => {
         const poId = req.params.id;
 
         const [poRows] = await connection.query(
-            `SELECT * FROM freight_tracking_app.purchase_order WHERE id=?`,
+            `
+            SELECT
+                po.*,
+                supplier.name AS supplier_id,
+                forwarder.name AS freight_forwarder
+            FROM freight_tracking_app.purchase_order po
+            LEFT JOIN freight_tracking_app.clients supplier
+                ON po.supplier_id = supplier.id
+            LEFT JOIN freight_tracking_app.clients forwarder
+                ON po.freight_forwarder = forwarder.id
+            WHERE po.id = ?
+            `,
             [poId]
         );
 
@@ -462,8 +481,8 @@ exports.getPurchaseOrderById = async (req, res) => {
             `
             SELECT *
             FROM freight_tracking_app.po_details
-            WHERE po_id=?
-        `,
+            WHERE po_id = ?
+            `,
             [poId]
         );
 
@@ -471,8 +490,8 @@ exports.getPurchaseOrderById = async (req, res) => {
             `
             SELECT *
             FROM freight_tracking_app.shipping_quantity
-            WHERE po_id=?
-        `,
+            WHERE po_id = ?
+            `,
             [poId]
         );
 

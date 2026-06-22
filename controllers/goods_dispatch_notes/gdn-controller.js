@@ -257,9 +257,11 @@ exports.getAllGDN = async (req, res) => {
         const query = `
       SELECT
         g.id,
-        g.client_id,
-        g.manufacture_id,
-        g.forwarder_id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+        forwarder.name AS forwarder_id,
+
         g.date,
         g.cartoons,
         g.actual_cartoons,
@@ -274,10 +276,23 @@ exports.getAllGDN = async (req, res) => {
         g.updated_by,
         g.updated_on,
         g.vehicle_no,
+
         GROUP_CONCAT(p.id) AS packing_list_ids
+
       FROM freight_tracking_app.goods_deliver_notes g
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON g.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON g.manufacture_id = manufacture.id
+
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON g.forwarder_id = forwarder.id
+
       LEFT JOIN freight_tracking_app.packing_list p
         ON p.gdn_id = g.id
+
       GROUP BY g.id
       ORDER BY g.id DESC
     `;
@@ -317,9 +332,11 @@ exports.getGDNById = async (req, res) => {
         const query = `
       SELECT
         g.id,
-        g.client_id,
-        g.manufacture_id,
-        g.forwarder_id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+        forwarder.name AS forwarder_id,
+
         g.date,
         g.cartoons,
         g.actual_cartoons,
@@ -334,10 +351,23 @@ exports.getGDNById = async (req, res) => {
         g.updated_by,
         g.updated_on,
         g.vehicle_no,
+
         GROUP_CONCAT(p.id) AS packing_list_ids
+
       FROM freight_tracking_app.goods_deliver_notes g
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON g.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON g.manufacture_id = manufacture.id
+
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON g.forwarder_id = forwarder.id
+
       LEFT JOIN freight_tracking_app.packing_list p
         ON p.gdn_id = g.id
+
       WHERE g.id = ?
       GROUP BY g.id
     `;

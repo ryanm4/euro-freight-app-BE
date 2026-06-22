@@ -202,7 +202,7 @@ exports.getAllPackingLists = async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         pl.id AS packing_list_id,
-        pl.client_id,
+        c.name AS client_id,
         pl.date,
         pl.gdn_id,
         pl.quantity,
@@ -218,8 +218,13 @@ exports.getAllPackingLists = async (req, res) => {
         po.status
 
       FROM freight_tracking_app.packing_list pl
+
+      LEFT JOIN freight_tracking_app.clients c
+        ON c.id = pl.client_id
+
       LEFT JOIN freight_tracking_app.purchase_order po
         ON po.packing_list_id = pl.id
+
       ORDER BY pl.id DESC
     `);
 
@@ -229,7 +234,7 @@ exports.getAllPackingLists = async (req, res) => {
       if (!map.has(r.packing_list_id)) {
         map.set(r.packing_list_id, {
           packing_list_id: r.packing_list_id,
-          client_id: r.client_id,
+          client_id: r.client_id, // returns client name
           gdn_id: r.gdn_id,
           grn_id: r.grn_id,
           date: r.date,
@@ -272,7 +277,7 @@ exports.getPackingListById = async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         pl.id AS packing_list_id,
-        pl.client_id,
+        c.name AS client_id,
         pl.date,
         pl.gdn_id,
         pl.grn_id,
@@ -290,8 +295,13 @@ exports.getPackingListById = async (req, res) => {
         po.status
 
       FROM freight_tracking_app.packing_list pl
+
+      LEFT JOIN freight_tracking_app.clients c
+        ON c.id = pl.client_id
+
       LEFT JOIN freight_tracking_app.purchase_order po
         ON po.packing_list_id = pl.id
+
       WHERE pl.id = ?
     `, [id]);
 
@@ -304,7 +314,7 @@ exports.getPackingListById = async (req, res) => {
 
     const result = {
       packing_list_id: rows[0].packing_list_id,
-      client_id: rows[0].client_id,
+      client_id: rows[0].client_id, // returns client name instead of ID
       gdn_id: rows[0].gdn_id,
       date: rows[0].date,
       created_by: rows[0].created_by,

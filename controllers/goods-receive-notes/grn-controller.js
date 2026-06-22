@@ -342,9 +342,11 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
         const [grns] = await connection.query(`
       SELECT 
         grn.id,
-        grn.client_id,
-        grn.manufacture_id,
-        grn.forwarder_id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+        forwarder.name AS forwarder_id,
+
         grn.date,
         grn.quantity,
         grn.status,
@@ -354,7 +356,18 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
         grn.created_on,
         grn.updated_by,
         grn.updated_on
+
       FROM freight_tracking_app.goods_receive_notes grn
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON grn.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON grn.manufacture_id = manufacture.id
+
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON grn.forwarder_id = forwarder.id
+
       ORDER BY grn.id DESC
     `);
 
@@ -409,21 +422,34 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
         const [grnResult] = await connection.query(
             `
       SELECT 
-        id,
-        client_id,
-        manufacture_id,
-        forwarder_id,
-        date,
-        quantity,
-        status,
-        bill_id,
-        comments,
-        created_by,
-        created_on,
-        updated_by,
-        updated_on
-      FROM freight_tracking_app.goods_receive_notes
-      WHERE id = ?
+        grn.id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+        forwarder.name AS forwarder_id,
+
+        grn.date,
+        grn.quantity,
+        grn.status,
+        grn.bill_id,
+        grn.comments,
+        grn.created_by,
+        grn.created_on,
+        grn.updated_by,
+        grn.updated_on
+
+      FROM freight_tracking_app.goods_receive_notes grn
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON grn.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON grn.manufacture_id = manufacture.id
+
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON grn.forwarder_id = forwarder.id
+
+      WHERE grn.id = ?
       `,
             [grnId]
         );

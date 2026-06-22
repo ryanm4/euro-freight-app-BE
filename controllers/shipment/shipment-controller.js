@@ -275,39 +275,49 @@ exports.getShipmentById = async (req, res) => {
       });
     }
 
-    // Get associated HBL/HAWB records
+    // Get associated HBL/HAWB records (WITH CLIENT NAMES)
     const [hblRows] = await db.query(
       `
       SELECT
-        id,
-        client_id,
-        manufacture_id,
-        date,
-        type,
-        shipment_id,
-        planned_vessel_name,
-        voyage_no,
-        etd,
-        eta,
-        actual_etd,
-        actual_eta,
-        arrival_port,
-        inland_location,
-        mbl_mawb_no,
-        status,
-        no_pieces,
-        gross_weight,
-        chargeable_weight,
-        cbm,
-        container_seal_no,
-        onboard_date,
-        created_by,
-        created_on,
-        updated_by,
-        updated_on
-      FROM freight_tracking_app.hbl_hawb_tbl
-      WHERE shipment_id = ?
-      ORDER BY id
+        h.id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+
+        h.date,
+        h.type,
+        h.shipment_id,
+        h.planned_vessel_name,
+        h.voyage_no,
+        h.etd,
+        h.eta,
+        h.actual_etd,
+        h.actual_eta,
+        h.arrival_port,
+        h.inland_location,
+        h.mbl_mawb_no,
+        h.status,
+        h.no_pieces,
+        h.gross_weight,
+        h.chargeable_weight,
+        h.cbm,
+        h.container_seal_no,
+        h.onboard_date,
+        h.created_by,
+        h.created_on,
+        h.updated_by,
+        h.updated_on
+
+      FROM freight_tracking_app.hbl_hawb_tbl h
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON h.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON h.manufacture_id = manufacture.id
+
+      WHERE h.shipment_id = ?
+      ORDER BY h.id
       `,
       [shipmentId]
     );

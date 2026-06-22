@@ -422,32 +422,68 @@ exports.getAllHBL = async (req, res) => {
   try {
     const query = `
       SELECT 
-        h.*,
+        h.id,
 
-        -- GRNs (pre-aggregated)
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+
+        h.date,
+        h.type,
+        h.shipment_id,
+        h.planned_vessel_name,
+        h.voyage_no,
+        h.etd,
+        h.eta,
+        h.actual_etd,
+        h.actual_eta,
+        h.arrival_port,
+        h.inland_location,
+        h.mbl_mawb_no,
+        h.status,
+        h.no_pieces,
+        h.gross_weight,
+        h.chargeable_weight,
+        h.cbm,
+        h.container_seal_no,
+        h.onboard_date,
+        h.created_by,
+        h.created_on,
+        h.updated_by,
+        h.updated_on,
+
         COALESCE(g.grns, JSON_ARRAY()) AS grns,
-
-        -- PORTS (pre-aggregated)
         COALESCE(p.ports, JSON_ARRAY()) AS ports
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
+      LEFT JOIN freight_tracking_app.clients client
+        ON h.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON h.manufacture_id = manufacture.id
+
       LEFT JOIN (
         SELECT 
-          bill_id,
+          grn.bill_id,
           JSON_ARRAYAGG(
             JSON_OBJECT(
-              'id', id,
-              'client_id', client_id,
-              'manufacture_id', manufacture_id,
-              'forwarder_id', forwarder_id,
-              'date', date,
-              'quantity', quantity,
-              'status', status
+              'id', grn.id,
+              'client_id', client.name,
+              'manufacture_id', manufacture.name,
+              'date', grn.date,
+              'quantity', grn.quantity,
+              'status', grn.status
             )
           ) AS grns
-        FROM freight_tracking_app.goods_receive_notes
-        GROUP BY bill_id
+        FROM freight_tracking_app.goods_receive_notes grn
+
+        LEFT JOIN freight_tracking_app.clients client
+          ON grn.client_id = client.id
+
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON grn.manufacture_id = manufacture.id
+
+        GROUP BY grn.bill_id
       ) g ON g.bill_id = h.id
 
       LEFT JOIN (
@@ -492,29 +528,68 @@ exports.getHBLById = async (req, res) => {
 
     const query = `
       SELECT 
-        h.*,
+        h.id,
+
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+
+        h.date,
+        h.type,
+        h.shipment_id,
+        h.planned_vessel_name,
+        h.voyage_no,
+        h.etd,
+        h.eta,
+        h.actual_etd,
+        h.actual_eta,
+        h.arrival_port,
+        h.inland_location,
+        h.mbl_mawb_no,
+        h.status,
+        h.no_pieces,
+        h.gross_weight,
+        h.chargeable_weight,
+        h.cbm,
+        h.container_seal_no,
+        h.onboard_date,
+        h.created_by,
+        h.created_on,
+        h.updated_by,
+        h.updated_on,
 
         COALESCE(g.grns, JSON_ARRAY()) AS grns,
         COALESCE(p.ports, JSON_ARRAY()) AS ports
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
+      LEFT JOIN freight_tracking_app.clients client
+        ON h.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON h.manufacture_id = manufacture.id
+
       LEFT JOIN (
         SELECT 
-          bill_id,
+          grn.bill_id,
           JSON_ARRAYAGG(
             JSON_OBJECT(
-              'id', id,
-              'client_id', client_id,
-              'manufacture_id', manufacture_id,
-              'forwarder_id', forwarder_id,
-              'date', date,
-              'quantity', quantity,
-              'status', status
+              'id', grn.id,
+              'client_id', client.name,
+              'manufacture_id', manufacture.name,
+              'date', grn.date,
+              'quantity', grn.quantity,
+              'status', grn.status
             )
           ) AS grns
-        FROM freight_tracking_app.goods_receive_notes
-        GROUP BY bill_id
+        FROM freight_tracking_app.goods_receive_notes grn
+
+        LEFT JOIN freight_tracking_app.clients client
+          ON grn.client_id = client.id
+
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON grn.manufacture_id = manufacture.id
+
+        GROUP BY grn.bill_id
       ) g ON g.bill_id = h.id
 
       LEFT JOIN (
