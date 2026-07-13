@@ -71,6 +71,7 @@ CREATE TABLE
 CREATE TABLE
     `freight_tracking_app`.`packing_list` (
         `id` INT NOT NULL AUTO_INCREMENT,
+        `packing_list_no` VARCHAR(45) NULL,
         `client_id` INT NULL,
         `manufacturer_id` VARCHAR(45) NULL,
         `date` DATETIME NULL,
@@ -83,6 +84,8 @@ CREATE TABLE
         `total_gross_weight_kg` DECIMAL(10,3) NULL,
         `total_net_weight_kg` DECIMAL(10,3) NULL ,
         `total_cbm` DECIMAL(10,3) NULL, 
+        `shipping_mode` VARCHAR(45) NULL,
+        `status` VARCHAR(45) NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
