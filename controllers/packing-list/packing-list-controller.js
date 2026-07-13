@@ -1,4 +1,7 @@
 const db = require("../../sql-connection");
+const fs = require("fs");
+const { PDFParse } = require("pdf-parse");
+const { parsePackingListText, summarize } = require("./Packing-list-parser");
 
 exports.createPackingList = async (req, res) => {
   const connection = await db.getConnection();
@@ -8,72 +11,157 @@ exports.createPackingList = async (req, res) => {
 
     const {
       client_id,
+      manufacturer_id,
       date,
-      po_detail_ids,
+      gdn_id,
+      grn_id,
+      ship_to,
+      document_date,
       created_by,
-      quantity,
+      items, // parsed packing list line items, sent directly as JSON
     } = req.body;
 
-    if (!po_detail_ids || po_detail_ids.length === 0) {
+    if (!items || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "po_detail_ids is required",
+        message: "items is required",
       });
     }
 
-    // 1. CHECK if any PO already assigned
-    const [existing] = await connection.query(
-      `
-        SELECT id, po_number
-        FROM freight_tracking_app.purchase_order
-        WHERE id IN (?)
-        AND packing_list_id IS NOT NULL
-      `,
-      [po_detail_ids]
-    );
+    // po_detail_ids is no longer sent by the client — derive the unique set
+    // of PO numbers straight from the submitted items instead.
+    const poNumbers = [
+      ...new Set(items.map((i) => i.poNumber).filter(Boolean)),
+    ];
 
-    if (existing.length > 0) {
+    // purchase_order linkage is best-effort: the PO numbers in a freshly
+    // uploaded packing list may not exist in purchase_order yet, so any
+    // failure here (missing table/column, no matching rows, query error)
+    // is swallowed and simply skipped rather than blocking packing_list
+    // creation.
+    let conflictingPOs = [];
+    let matchedPurchaseOrderIds = [];
+
+    if (poNumbers.length > 0) {
+      try {
+        const [existing] = await connection.query(
+          `
+            SELECT id, po_number
+            FROM freight_tracking_app.purchase_order
+            WHERE po_number IN (?)
+            AND packing_list_id IS NOT NULL
+          `,
+          [poNumbers],
+        );
+        conflictingPOs = existing;
+      } catch (poErr) {
+        console.warn(
+          "purchase_order lookup failed, continuing without it:",
+          poErr.message,
+        );
+      }
+    }
+
+    if (conflictingPOs.length > 0) {
       await connection.rollback();
 
       return res.status(409).json({
         success: false,
         message: "Some purchase orders are already assigned to a packing list",
-        data: existing,
+        data: conflictingPOs,
       });
     }
 
-    // 2. Create packing list
+    const totals = summarize(items);
+
+    // 1. Create packing list (header) using totals derived from the submitted items
     const insertPackingListQuery = `
       INSERT INTO freight_tracking_app.packing_list
       (
         client_id,
+        manufacturer_id,
         date,
+        gdn_id,
+        grn_id,
+        total_quantity,
+        ship_to,
+        document_date,
+        total_cartons,
+        total_gross_weight_kg,
+        total_net_weight_kg,
+        total_cbm,
         created_by,
-        created_on,
-        quantity
+        created_on
       )
-      VALUES (?, ?, ?, NOW(), ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
-    const [packingResult] = await connection.query(
-      insertPackingListQuery,
-      [client_id, date, created_by, quantity]
-    );
+    const [packingResult] = await connection.query(insertPackingListQuery, [
+      client_id,
+      manufacturer_id || null,
+      date,
+      gdn_id || null,
+      grn_id || null,
+      totals.totalQuantity,
+      ship_to || null,
+      document_date || null,
+      totals.totalCartons,
+      totals.totalGrossWeight,
+      totals.totalNetWeight,
+      totals.totalCbm,
+      created_by,
+    ]);
 
     const packingListId = packingResult.insertId;
 
-    // 3. Assign PO to packing list
+    // 2. Bulk insert the submitted line items, linked to the new packing list
+    const itemValues = items.map((r) => [
+      packingListId,
+      r.poNumber,
+      r.sku,
+      r.itemDescription,
+      r.size,
+      r.unitCost,
+      r.quantity,
+      r.ctnCount,
+      r.grossWeightKg,
+      r.netWeightKg,
+      r.cartonDimensions,
+      r.cbm,
+    ]);
+
     await connection.query(
       `
-        UPDATE freight_tracking_app.purchase_order
-        SET
-          packing_list_id = ?,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE id IN (?)
+        INSERT INTO freight_tracking_app.packing_list_items
+          (shipment_id, po_number, sku, item_description, size, unit_cost,
+           quantity, ctn_count, gross_weight_kg, net_weight_kg, carton_dimensions, cbm)
+        VALUES ?
       `,
-      [packingListId, created_by, po_detail_ids]
+      [itemValues],
     );
+
+    // 3. Assign PO to packing list (best-effort, see note above)
+    if (poNumbers.length > 0) {
+      try {
+        const [updateResult] = await connection.query(
+          `
+            UPDATE freight_tracking_app.purchase_order
+            SET
+              packing_list_id = ?,
+              updated_by = ?,
+              updated_on = NOW()
+            WHERE po_number IN (?)
+          `,
+          [packingListId, created_by, poNumbers],
+        );
+        matchedPurchaseOrderIds = updateResult.affectedRows;
+      } catch (poErr) {
+        console.warn(
+          "purchase_order linking failed, continuing without it:",
+          poErr.message,
+        );
+      }
+    }
 
     await connection.commit();
 
@@ -81,8 +169,12 @@ exports.createPackingList = async (req, res) => {
       success: true,
       message: "Packing list created successfully",
       packing_list_id: packingListId,
+      rowCount: items.length,
+      poNumbers,
+      purchaseOrdersLinked: matchedPurchaseOrderIds,
+      totals,
+      // items,
     });
-
   } catch (error) {
     await connection.rollback();
 
@@ -91,12 +183,10 @@ exports.createPackingList = async (req, res) => {
       message: "Failed to create packing list",
       error: error.message,
     });
-
   } finally {
     connection.release();
   }
 };
-
 
 exports.updatePackingList = async (req, res) => {
   const connection = await db.getConnection();
@@ -108,15 +198,28 @@ exports.updatePackingList = async (req, res) => {
 
     const {
       client_id,
+      manufacturer_id,
       date,
-      po_detail_ids,
+      gdn_id,
+      grn_id,
+      ship_to,
+      document_date,
       updated_by,
+      items, // parsed packing list line items, sent directly as JSON
     } = req.body;
+
+    if (!items || items.length === 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "items is required",
+      });
+    }
 
     // Check if packing list exists
     const [existing] = await connection.query(
       `SELECT * FROM freight_tracking_app.packing_list WHERE id = ?`,
-      [id]
+      [id],
     );
 
     if (existing.length === 0) {
@@ -127,12 +230,30 @@ exports.updatePackingList = async (req, res) => {
       });
     }
 
-    // Update packing list (DO NOT TOUCH created_by / created_on)
+    // po_detail_ids is no longer sent by the client — derive the unique set
+    // of PO numbers straight from the submitted items instead.
+    const poNumbers = [
+      ...new Set(items.map((i) => i.poNumber).filter(Boolean)),
+    ];
+
+    const totals = summarize(items);
+
+    // 1. Update packing list header (DO NOT TOUCH created_by / created_on)
     const updatePackingListQuery = `
       UPDATE freight_tracking_app.packing_list
       SET
         client_id = ?,
+        manufacturer_id = ?,
         date = ?,
+        gdn_id = ?,
+        grn_id = ?,
+        total_quantity = ?,
+        ship_to = ?,
+        document_date = ?,
+        total_cartons = ?,
+        total_gross_weight_kg = ?,
+        total_net_weight_kg = ?,
+        total_cbm = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
@@ -140,36 +261,91 @@ exports.updatePackingList = async (req, res) => {
 
     await connection.query(updatePackingListQuery, [
       client_id,
+      manufacturer_id || null,
       date,
+      gdn_id || null,
+      grn_id || null,
+      totals.totalQuantity,
+      ship_to || null,
+      document_date || null,
+      totals.totalCartons,
+      totals.totalGrossWeight,
+      totals.totalNetWeight,
+      totals.totalCbm,
       updated_by,
       id,
     ]);
 
-    // Remove old PO assignments linked to this packing list
+    // 2. Replace line items: wipe old rows for this packing list, insert the new set
     await connection.query(
-      `
-        UPDATE freight_tracking_app.purchase_order
-        SET
-          packing_list_id = NULL,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE packing_list_id = ?
-      `,
-      [updated_by, id]
+      `DELETE FROM freight_tracking_app.packing_list_items WHERE shipment_id = ?`,
+      [id],
     );
 
-    // Assign new PO details
-    if (po_detail_ids && po_detail_ids.length > 0) {
+    const itemValues = items.map((r) => [
+      id,
+      r.poNumber,
+      r.sku,
+      r.itemDescription,
+      r.size,
+      r.unitCost,
+      r.quantity,
+      r.ctnCount,
+      r.grossWeightKg,
+      r.netWeightKg,
+      r.cartonDimensions,
+      r.cbm,
+    ]);
+
+    await connection.query(
+      `
+        INSERT INTO freight_tracking_app.packing_list_items
+          (shipment_id, po_number, sku, item_description, size, unit_cost,
+           quantity, ctn_count, gross_weight_kg, net_weight_kg, carton_dimensions, cbm)
+        VALUES ?
+      `,
+      [itemValues],
+    );
+
+    // 3. Re-link purchase_order rows by po_number (best-effort, see note below).
+    // The PO numbers on a re-uploaded packing list may not exist in
+    // purchase_order yet, so any failure here (missing table/column, no
+    // matching rows, query error) is swallowed and simply skipped rather
+    // than blocking the update.
+    let purchaseOrdersLinked = 0;
+    try {
+      // Remove old PO assignments linked to this packing list
       await connection.query(
         `
           UPDATE freight_tracking_app.purchase_order
           SET
-            packing_list_id = ?,
+            packing_list_id = NULL,
             updated_by = ?,
             updated_on = NOW()
-          WHERE id IN (?)
+          WHERE packing_list_id = ?
         `,
-        [id, updated_by, po_detail_ids]
+        [updated_by, id],
+      );
+
+      // Assign new PO details
+      if (poNumbers.length > 0) {
+        const [updateResult] = await connection.query(
+          `
+            UPDATE freight_tracking_app.purchase_order
+            SET
+              packing_list_id = ?,
+              updated_by = ?,
+              updated_on = NOW()
+            WHERE po_number IN (?)
+          `,
+          [id, updated_by, poNumbers],
+        );
+        purchaseOrdersLinked = updateResult.affectedRows;
+      }
+    } catch (poErr) {
+      console.warn(
+        "purchase_order relinking failed, continuing without it:",
+        poErr.message,
       );
     }
 
@@ -179,6 +355,11 @@ exports.updatePackingList = async (req, res) => {
       success: true,
       message: "Packing list updated successfully",
       packing_list_id: Number(id),
+      rowCount: items.length,
+      poNumbers,
+      purchaseOrdersLinked,
+      totals,
+      // items,
     });
   } catch (error) {
     await connection.rollback();
@@ -194,7 +375,6 @@ exports.updatePackingList = async (req, res) => {
     connection.release();
   }
 };
-
 
 // GET ALL Packing Lists
 exports.getAllPackingLists = async (req, res) => {
@@ -261,7 +441,6 @@ exports.getAllPackingLists = async (req, res) => {
       success: true,
       data: Array.from(map.values()),
     });
-
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -274,7 +453,8 @@ exports.getPackingListById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT 
         pl.id AS packing_list_id,
         c.name AS client_id,
@@ -303,7 +483,9 @@ exports.getPackingListById = async (req, res) => {
         ON po.packing_list_id = pl.id
 
       WHERE pl.id = ?
-    `, [id]);
+    `,
+      [id],
+    );
 
     if (rows.length === 0) {
       return res.status(404).json({
@@ -343,9 +525,45 @@ exports.getPackingListById = async (req, res) => {
       success: true,
       data: result,
     });
-
   } catch (err) {
     res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+exports.uploadPackingListFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded",
+        body: req.body,
+        file: req.file,
+      });
+    }
+
+    const buffer = fs.readFileSync(req.file.path);
+    const parser = new PDFParse({ data: buffer });
+    const pdfData = await parser.getText();
+
+    const { rows, errors } = parsePackingListText(pdfData.text);
+
+    res.status(200).json({
+      success: true,
+      filename: req.file.originalname,
+      rowCount: rows.length,
+      rowsFailedToParse: errors.length,
+      totals: summarize(rows),
+      items: rows,
+      // Chunks that didn't match the expected pattern, for manual review
+      parseErrors: errors,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
       success: false,
       message: err.message,
     });
