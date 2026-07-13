@@ -632,5 +632,19 @@ exports.uploadPackingListFile = async (req, res) => {
       success: false,
       message: err.message,
     });
+  } finally {
+    // Clean up the uploaded PDF from disk regardless of success or failure —
+    // we only ever needed it transiently to extract the text above.
+    if (req.file?.path) {
+      fs.unlink(req.file.path, (unlinkErr) => {
+        if (unlinkErr) {
+          console.warn(
+            "Failed to delete uploaded file:",
+            req.file.path,
+            unlinkErr.message,
+          );
+        }
+      });
+    }
   }
 };
