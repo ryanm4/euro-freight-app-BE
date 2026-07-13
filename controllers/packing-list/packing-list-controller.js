@@ -423,29 +423,36 @@ exports.getAllPackingLists = async (req, res) => {
         pl.total_gross_weight_kg,
         pl.total_net_weight_kg,
         pl.total_cbm,
+        pl.shipping_mode,
+        pl.status AS status,
         pl.created_by,
         pl.created_on,
         pl.updated_by,
         pl.updated_on,
- 
-        po.id AS po_id,
+
         po.po_number,
-        po.po_quantity,
-        po.status
- 
+        po.po_quantity
+
       FROM freight_tracking_app.packing_list pl
- 
+
       LEFT JOIN freight_tracking_app.clients c
         ON c.id = pl.client_id
         AND c.type = '1'
- 
+
       LEFT JOIN freight_tracking_app.clients m
         ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
         AND m.type = '2'
- 
-      LEFT JOIN freight_tracking_app.purchase_order po
+
+      LEFT JOIN (
+        SELECT
+          pli.shipment_id AS packing_list_id,
+          pli.po_number,
+          SUM(pli.quantity) AS po_quantity
+        FROM freight_tracking_app.packing_list_items pli
+        GROUP BY pli.shipment_id, pli.po_number
+      ) po
         ON po.packing_list_id = pl.id
- 
+
       ORDER BY pl.id DESC
     `);
 
@@ -467,6 +474,8 @@ exports.getAllPackingLists = async (req, res) => {
           total_gross_weight_kg: r.total_gross_weight_kg,
           total_net_weight_kg: r.total_net_weight_kg,
           total_cbm: r.total_cbm,
+          status: r.status,
+          shipping_mode: r.shipping_mode,
           created_by: r.created_by,
           created_on: r.created_on,
           updated_by: r.updated_by,
@@ -475,12 +484,11 @@ exports.getAllPackingLists = async (req, res) => {
         });
       }
 
-      if (r.po_id) {
+      if (r.po_number) {
         map.get(r.packing_list_id).purchase_orders.push({
-          po_id: r.po_id,
           po_number: r.po_number,
+          po_id: null,
           po_quantity: r.po_quantity,
-          status: r.status,
         });
       }
     });
@@ -505,6 +513,7 @@ exports.getPackingListById = async (req, res) => {
       `
       SELECT 
         pl.id AS packing_list_id,
+        pl.packing_list_no,
         c.name AS client_name,
         m.name AS manufacturer_name,
         pl.date,
@@ -517,31 +526,23 @@ exports.getPackingListById = async (req, res) => {
         pl.total_gross_weight_kg,
         pl.total_net_weight_kg,
         pl.total_cbm,
+        pl.shipping_mode AS shipping_mode,
+        pl.status AS status,
         pl.created_by,
         pl.created_on,
         pl.updated_by,
-        pl.updated_on,
- 
-        po.id AS po_id,
-        po.po_number,
-        po.po_quantity,
-        po.shipping_mode,
-        po.final_destination,
-        po.status
- 
+        pl.updated_on
+
       FROM freight_tracking_app.packing_list pl
- 
+
       LEFT JOIN freight_tracking_app.clients c
         ON c.id = pl.client_id
         AND c.type = '1'
- 
+
       LEFT JOIN freight_tracking_app.clients m
         ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
         AND m.type = '2'
- 
-      LEFT JOIN freight_tracking_app.purchase_order po
-        ON po.packing_list_id = pl.id
- 
+
       WHERE pl.id = ?
     `,
       [id],
@@ -578,8 +579,67 @@ exports.getPackingListById = async (req, res) => {
       [id],
     );
 
+    // purchase_orders is sourced from the distinct po_number values on the
+    // items themselves (the source of truth for what's actually in this
+    // packing list), then enriched with metadata from purchase_order where
+    // a matching row exists. This avoids silently dropping POs whose
+    // packing_list_id link never got set (see createPackingList's
+    // best-effort PO linking).
+    const poNumbers = [
+      ...new Set(items.map((i) => i.po_number).filter(Boolean)),
+    ];
+
+    // Sum item quantities per po_number
+    const poQuantityMap = new Map();
+    items.forEach((i) => {
+      if (!i.po_number) return;
+      const current = poQuantityMap.get(i.po_number) || 0;
+      poQuantityMap.set(i.po_number, current + Number(i.quantity || 0));
+    });
+
+    let purchaseOrders = poNumbers.map((po_number) => ({
+      po_number,
+      po_id: null,
+      po_quantity: poQuantityMap.get(po_number) ?? null,
+      shipping_mode: null,
+      final_destination: null,
+      status: null,
+    }));
+
+    if (poNumbers.length > 0) {
+      const [poRows] = await db.query(
+        `
+          SELECT 
+            id AS po_id,
+            po_number,
+            po_quantity,
+            shipping_mode,
+            final_destination,
+            status
+          FROM freight_tracking_app.purchase_order
+          WHERE po_number IN (?)
+        `,
+        [poNumbers],
+      );
+
+      const poMap = new Map(poRows.map((p) => [p.po_number, p]));
+
+      purchaseOrders = poNumbers.map((po_number) => {
+        const match = poMap.get(po_number);
+        return {
+          po_number,
+          po_id: match?.po_id ?? null,
+          po_quantity: poQuantityMap.get(po_number) ?? null,
+          // shipping_mode: match?.shipping_mode ?? null,
+          // final_destination: match?.final_destination ?? null,
+          // status: match?.status ?? null,
+        };
+      });
+    }
+
     const result = {
       packing_list_id: rows[0].packing_list_id,
+      packing_list_no: rows[0].packing_list_no,
       client_name: rows[0].client_name,
       manufacturer_name: rows[0].manufacturer_name,
       gdn_id: rows[0].gdn_id,
@@ -592,28 +652,15 @@ exports.getPackingListById = async (req, res) => {
       total_gross_weight_kg: rows[0].total_gross_weight_kg,
       total_net_weight_kg: rows[0].total_net_weight_kg,
       total_cbm: rows[0].total_cbm,
+      shipping_mode: rows[0].shipping_mode,
+      status: rows[0].status,
       created_by: rows[0].created_by,
       created_on: rows[0].created_on,
       updated_by: rows[0].updated_by,
       updated_on: rows[0].updated_on,
-      purchase_orders: [],
+      purchase_orders: purchaseOrders,
       items,
     };
-
-    const seenPOs = new Set();
-    rows.forEach((r) => {
-      if (r.po_id && !seenPOs.has(r.po_id)) {
-        seenPOs.add(r.po_id);
-        result.purchase_orders.push({
-          po_id: r.po_id,
-          po_number: r.po_number,
-          po_quantity: r.po_quantity,
-          shipping_mode: r.shipping_mode,
-          final_destination: r.final_destination,
-          status: r.status,
-        });
-      }
-    });
 
     res.json({
       success: true,
