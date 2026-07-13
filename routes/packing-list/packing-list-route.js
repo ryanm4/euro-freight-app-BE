@@ -24,6 +24,10 @@ router
     "/upload",
     upload.single("packing_list"),
     packingListController.uploadPackingListFile,
+  )
+  .patch(
+    "/:id/:status",
+    packingListController.updatePackingListStatus,
   );
 
 module.exports = router;

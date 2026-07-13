@@ -2,6 +2,8 @@ const db = require("../../sql-connection");
 const fs = require("fs");
 const { PDFParse } = require("pdf-parse");
 const { parsePackingListText, summarize } = require("./Packing-list-parser");
+const { formatDateYYYYMMDD } = require("../../helpers/helper-functions");
+const { PACKING_LIST_STATUSES } = require("../../types/types");
 
 exports.createPackingList = async (req, res) => {
   const connection = await db.getConnection();
@@ -17,6 +19,8 @@ exports.createPackingList = async (req, res) => {
       grn_id,
       ship_to,
       document_date,
+      shipping_mode, // NEW: needed to build packing_list_no
+      status,
       created_by,
       items, // parsed packing list line items, sent directly as JSON
     } = req.body;
@@ -90,10 +94,12 @@ exports.createPackingList = async (req, res) => {
         total_gross_weight_kg,
         total_net_weight_kg,
         total_cbm,
+        shipping_mode,
+        status,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
@@ -109,10 +115,26 @@ exports.createPackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      shipping_mode || null,
+      status || null,
       created_by,
     ]);
 
     const packingListId = packingResult.insertId;
+
+    // 1b. Generate packing_list_no now that we have the id: YYYYMMDD/shipping_mode/id
+    const datePart = formatDateYYYYMMDD(date);
+    const modePart = shipping_mode || "NA";
+    const packingListNo = `${datePart}/${modePart}/${packingListId}`;
+
+    await connection.query(
+      `
+        UPDATE freight_tracking_app.packing_list
+        SET packing_list_no = ?
+        WHERE id = ?
+      `,
+      [packingListNo, packingListId],
+    );
 
     // 2. Bulk insert the submitted line items, linked to the new packing list
     const itemValues = items.map((r) => [
@@ -169,6 +191,7 @@ exports.createPackingList = async (req, res) => {
       success: true,
       message: "Packing list created successfully",
       packing_list_id: packingListId,
+      packing_list_no: packingListNo,
       rowCount: items.length,
       poNumbers,
       purchaseOrdersLinked: matchedPurchaseOrderIds,
@@ -204,6 +227,8 @@ exports.updatePackingList = async (req, res) => {
       grn_id,
       ship_to,
       document_date,
+      shipping_mode,
+      status,
       updated_by,
       items, // parsed packing list line items, sent directly as JSON
     } = req.body;
@@ -254,6 +279,8 @@ exports.updatePackingList = async (req, res) => {
         total_gross_weight_kg = ?,
         total_net_weight_kg = ?,
         total_cbm = ?,
+        shipping_mode = ?,
+        status = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
@@ -272,6 +299,8 @@ exports.updatePackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      shipping_mode || null,
+      status || null,
       updated_by,
       id,
     ]);
@@ -646,5 +675,55 @@ exports.uploadPackingListFile = async (req, res) => {
         }
       });
     }
+  }
+};
+
+exports.updatePackingListStatus = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id, status } = req.params;
+    const { updated_by } = req.body;
+
+    if (!PACKING_LIST_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${PACKING_LIST_STATUSES.join(", ")}`,
+      });
+    }
+
+    const [result] = await connection.query(
+      `
+        UPDATE freight_tracking_app.packing_list
+        SET
+          status = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id = ?
+      `,
+      [status, updated_by || null, id],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Packing list not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Packing list status updated successfully",
+      packing_list_id: Number(id),
+      status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update packing list status",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
   }
 };
