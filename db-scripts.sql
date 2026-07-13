@@ -72,16 +72,44 @@ CREATE TABLE
     `freight_tracking_app`.`packing_list` (
         `id` INT NOT NULL AUTO_INCREMENT,
         `client_id` INT NULL,
+        `manufacturer_id` VARCHAR(45) NULL,
         `date` DATETIME NULL,
         `gdn_id` INT NULL,
         `grn_id` INT NULL,
-        `quantity` INT NULL,
+        `total_quantity` INT NULL,
+        `ship_to` VARCHAR(45) NULL,
+        `document_date` DATE NULL,
+        `total_cartons` INT NULL,
+        `total_gross_weight_kg` DECIMAL(10,3) NULL,
+        `total_net_weight_kg` DECIMAL(10,3) NULL ,
+        `total_cbm` DECIMAL(10,3) NULL, 
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
         `updated_on` DATETIME NULL,
         PRIMARY KEY (`id`),
         UNIQUE INDEX `id_UNIQUE` (`id` ASC) VISIBLE
+    );
+
+CREATE TABLE
+    IF NOT EXISTS packing_list_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        shipment_id INT NOT NULL,
+        po_number VARCHAR(20) NOT NULL,
+        sku VARCHAR(30) NOT NULL,
+        item_description VARCHAR(255) NOT NULL, -- item name + color combined
+        size VARCHAR(10) NOT NULL,
+        unit_cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        quantity INT NOT NULL,
+        ctn_count INT NOT NULL DEFAULT 1,
+        gross_weight_kg DECIMAL(10, 3) NOT NULL,
+        net_weight_kg DECIMAL(10, 3) NOT NULL,
+        carton_dimensions VARCHAR(50),
+        cbm DECIMAL(10, 4) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_shipment FOREIGN KEY (shipment_id) REFERENCES packing_list_shipments (id) ON DELETE CASCADE,
+        INDEX idx_po_number (po_number),
+        INDEX idx_sku (sku)
     );
 
 CREATE TABLE
