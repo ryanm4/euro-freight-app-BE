@@ -382,29 +382,41 @@ exports.getAllPackingLists = async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         pl.id AS packing_list_id,
-        c.name AS client_id,
+        c.name AS client_name,
+        m.name AS manufacturer_name,
         pl.date,
         pl.gdn_id,
-        pl.quantity,
         pl.grn_id,
+        pl.ship_to,
+        pl.document_date,
+        pl.total_quantity,
+        pl.total_cartons,
+        pl.total_gross_weight_kg,
+        pl.total_net_weight_kg,
+        pl.total_cbm,
         pl.created_by,
         pl.created_on,
         pl.updated_by,
         pl.updated_on,
-
+ 
         po.id AS po_id,
         po.po_number,
         po.po_quantity,
         po.status
-
+ 
       FROM freight_tracking_app.packing_list pl
-
+ 
       LEFT JOIN freight_tracking_app.clients c
         ON c.id = pl.client_id
-
+        AND c.type = '1'
+ 
+      LEFT JOIN freight_tracking_app.clients m
+        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+        AND m.type = '2'
+ 
       LEFT JOIN freight_tracking_app.purchase_order po
         ON po.packing_list_id = pl.id
-
+ 
       ORDER BY pl.id DESC
     `);
 
@@ -414,15 +426,22 @@ exports.getAllPackingLists = async (req, res) => {
       if (!map.has(r.packing_list_id)) {
         map.set(r.packing_list_id, {
           packing_list_id: r.packing_list_id,
-          client_id: r.client_id, // returns client name
+          client_name: r.client_name,
+          manufacturer_name: r.manufacturer_name,
           gdn_id: r.gdn_id,
           grn_id: r.grn_id,
+          ship_to: r.ship_to,
           date: r.date,
+          document_date: r.document_date,
+          total_quantity: r.total_quantity,
+          total_cartons: r.total_cartons,
+          total_gross_weight_kg: r.total_gross_weight_kg,
+          total_net_weight_kg: r.total_net_weight_kg,
+          total_cbm: r.total_cbm,
           created_by: r.created_by,
           created_on: r.created_on,
           updated_by: r.updated_by,
           updated_on: r.updated_on,
-          quantity: r.quantity,
           purchase_orders: [],
         });
       }
@@ -457,31 +476,43 @@ exports.getPackingListById = async (req, res) => {
       `
       SELECT 
         pl.id AS packing_list_id,
-        c.name AS client_id,
+        c.name AS client_name,
+        m.name AS manufacturer_name,
         pl.date,
         pl.gdn_id,
         pl.grn_id,
+        pl.ship_to,
+        pl.document_date,
+        pl.total_quantity,
+        pl.total_cartons,
+        pl.total_gross_weight_kg,
+        pl.total_net_weight_kg,
+        pl.total_cbm,
         pl.created_by,
         pl.created_on,
         pl.updated_by,
         pl.updated_on,
-        pl.quantity,
-
+ 
         po.id AS po_id,
         po.po_number,
         po.po_quantity,
         po.shipping_mode,
         po.final_destination,
         po.status
-
+ 
       FROM freight_tracking_app.packing_list pl
-
+ 
       LEFT JOIN freight_tracking_app.clients c
         ON c.id = pl.client_id
-
+        AND c.type = '1'
+ 
+      LEFT JOIN freight_tracking_app.clients m
+        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+        AND m.type = '2'
+ 
       LEFT JOIN freight_tracking_app.purchase_order po
         ON po.packing_list_id = pl.id
-
+ 
       WHERE pl.id = ?
     `,
       [id],
@@ -494,22 +525,56 @@ exports.getPackingListById = async (req, res) => {
       });
     }
 
+    // Line items live in their own table (a full join here would fan out
+    // against every purchase_order row above), so fetch them separately.
+    const [items] = await db.query(
+      `
+        SELECT 
+          id AS item_id,
+          po_number,
+          sku,
+          item_description,
+          size,
+          unit_cost,
+          quantity,
+          ctn_count,
+          gross_weight_kg,
+          net_weight_kg,
+          carton_dimensions,
+          cbm
+        FROM freight_tracking_app.packing_list_items
+        WHERE shipment_id = ?
+        ORDER BY id ASC
+      `,
+      [id],
+    );
+
     const result = {
       packing_list_id: rows[0].packing_list_id,
-      client_id: rows[0].client_id, // returns client name instead of ID
+      client_name: rows[0].client_name,
+      manufacturer_name: rows[0].manufacturer_name,
       gdn_id: rows[0].gdn_id,
+      grn_id: rows[0].grn_id,
+      ship_to: rows[0].ship_to,
       date: rows[0].date,
+      document_date: rows[0].document_date,
+      total_quantity: rows[0].total_quantity,
+      total_cartons: rows[0].total_cartons,
+      total_gross_weight_kg: rows[0].total_gross_weight_kg,
+      total_net_weight_kg: rows[0].total_net_weight_kg,
+      total_cbm: rows[0].total_cbm,
       created_by: rows[0].created_by,
       created_on: rows[0].created_on,
       updated_by: rows[0].updated_by,
       updated_on: rows[0].updated_on,
-      quantity: rows[0].quantity,
-      grn_id: rows[0].grn_id,
       purchase_orders: [],
+      items,
     };
 
+    const seenPOs = new Set();
     rows.forEach((r) => {
-      if (r.po_id) {
+      if (r.po_id && !seenPOs.has(r.po_id)) {
+        seenPOs.add(r.po_id);
         result.purchase_orders.push({
           po_id: r.po_id,
           po_number: r.po_number,
