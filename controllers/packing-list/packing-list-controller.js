@@ -680,25 +680,24 @@ exports.uploadPackingListFile = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "No file uploaded",
-        body: req.body,
-        file: req.file,
       });
     }
 
-    const buffer = fs.readFileSync(req.file.path);
-    const parser = new PDFParse({ data: buffer });
+    const parser = new PDFParse({
+      data: req.file.buffer,
+    });
+
     const pdfData = await parser.getText();
 
     const { rows, errors } = parsePackingListText(pdfData.text);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       filename: req.file.originalname,
       rowCount: rows.length,
       rowsFailedToParse: errors.length,
       totals: summarize(rows),
       items: rows,
-      // Chunks that didn't match the expected pattern, for manual review
       parseErrors: errors,
     });
   } catch (err) {
@@ -708,20 +707,6 @@ exports.uploadPackingListFile = async (req, res) => {
       success: false,
       message: err.message,
     });
-  } finally {
-    // Clean up the uploaded PDF from disk regardless of success or failure —
-    // we only ever needed it transiently to extract the text above.
-    if (req.file?.path) {
-      fs.unlink(req.file.path, (unlinkErr) => {
-        if (unlinkErr) {
-          console.warn(
-            "Failed to delete uploaded file:",
-            req.file.path,
-            unlinkErr.message,
-          );
-        }
-      });
-    }
   }
 };
 
