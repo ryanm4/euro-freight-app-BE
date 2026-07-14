@@ -1,6 +1,6 @@
 const db = require("../../sql-connection");
 const fs = require("fs");
-const { PDFParse } = require("pdf-parse");
+
 const { parsePackingListText, summarize } = require("./Packing-list-parser");
 const { formatDateYYYYMMDD } = require("../../helpers/helper-functions");
 const { PACKING_LIST_STATUSES } = require("../../types/types");
@@ -676,6 +676,7 @@ exports.getPackingListById = async (req, res) => {
 
 exports.uploadPackingListFile = async (req, res) => {
   try {
+    const { PDFParse } = require("pdf-parse");
     if (!req.file) {
       return res.status(400).json({
         success: false,
