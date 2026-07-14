@@ -1,4 +1,5 @@
 const db = require("../../sql-connection");
+const { formatDateYYYYMMDD } = require("../../helpers/helper-functions");
 
 // Create Goods Deliver Receive Note
 exports.createGDN = async (req, res) => {
@@ -85,7 +86,6 @@ exports.createGDN = async (req, res) => {
       driver_id,
       created_by,
 
-      // New fields
       dispatch_location,
       transport_mode,
       container_no,
@@ -98,7 +98,20 @@ exports.createGDN = async (req, res) => {
 
     const gdnId = result.insertId;
 
-    // 2. Update Packing Lists → attach GDN
+    // 2. Generate GDN No => YYYYMMDD/ID
+    const gdnNo = `GDN/${formatDateYYYYMMDD(date)}/${gdnId}`;
+
+    // 3. Update generated GDN number
+    await connection.query(
+      `
+      UPDATE freight_tracking_app.goods_deliver_notes
+      SET gdn_no = ?
+      WHERE id = ?
+      `,
+      [gdnNo, gdnId],
+    );
+
+    // 4. Update Packing Lists → attach GDN
     if (packing_list_ids && packing_list_ids.length > 0) {
       await connection.query(
         `
@@ -113,7 +126,7 @@ exports.createGDN = async (req, res) => {
       );
     }
 
-    // 3. Update Purchase Orders → set cargo dispatch date from GDN
+    // 5. Update Purchase Orders → set cargo dispatch date
     await connection.query(
       `
       UPDATE freight_tracking_app.purchase_order po
@@ -135,6 +148,7 @@ exports.createGDN = async (req, res) => {
       message:
         "Goods Deliver Note created successfully and Purchase Orders updated",
       gdn_id: gdnId,
+      gdn_no: gdnNo,
     });
   } catch (error) {
     await connection.rollback();
@@ -321,7 +335,7 @@ exports.getAllGDN = async (req, res) => {
     const query = `
       SELECT
         g.id,
-
+        g.gdn_no,
         client.name AS client_name,
         manufacture.name AS manufacture_name,
         forwarder.name AS forwarder_name,
@@ -431,6 +445,7 @@ exports.getGDNById = async (req, res) => {
     const query = `
       SELECT
         g.id,
+        g.gdn_no,
 
         client.name AS client_name,
         manufacture.name AS manufacture_name,
