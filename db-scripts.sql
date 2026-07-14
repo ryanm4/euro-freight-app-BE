@@ -176,6 +176,7 @@ CREATE TABLE
 CREATE TABLE
     `freight_tracking_app`.`goods_deliver_notes` (
         `id` INT NOT NULL AUTO_INCREMENT,
+        `gdn_no` VARCHAR(45) NULL,
         `client_id` INT NULL,
         `manufacture_id` INT NULL,
         `forwarder_id` INT NULL,
