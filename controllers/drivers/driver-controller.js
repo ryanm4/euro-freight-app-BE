@@ -103,7 +103,7 @@ exports.updateDriver = async (req, res) => {
       SET
         name = COALESCE(?, name),
         nic_no = COALESCE(?, nic_no),
-        manufacturer_id = COALESCE(?, manufacturer_id)
+        manufacturer_id = COALESCE(?, manufacturer_id),
         contact_no = COALESCE(?, contact_no)
       WHERE id = ?
       `,

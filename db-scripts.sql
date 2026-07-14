@@ -201,7 +201,7 @@ CREATE TABLE
         `primary_seal_no` VARCHAR(45) NULL  ,
         `secondary_seal_no` VARCHAR(45) NULL ,
         `custom_doc_status` VARCHAR(45) NULL  ,
-        `wharf_staff_id` VARCHAR(45) NULL ;
+        `wharf_staff_id` INT NULL ;
         PRIMARY KEY (`id`)
     );
 

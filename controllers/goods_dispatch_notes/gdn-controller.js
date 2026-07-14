@@ -175,11 +175,22 @@ exports.updateGDN = async (req, res) => {
       updated_by,
       gdn_grn_ref,
       vehicle_no,
+      driver_id,
+
+      // New fields
+      dispatch_location,
+      transport_mode,
+      container_no,
+      container_size,
+      primary_seal_no,
+      secondary_seal_no,
+      custom_doc_status,
+      wharf_staff_id,
     } = req.body || {};
 
-    // Check whether GDN exists
     const [existing] = await connection.query(
-      `SELECT id FROM freight_tracking_app.goods_deliver_notes
+      `SELECT id 
+       FROM freight_tracking_app.goods_deliver_notes
        WHERE id = ?`,
       [gdnId],
     );
@@ -189,11 +200,10 @@ exports.updateGDN = async (req, res) => {
 
       return res.status(404).json({
         success: false,
-        message: "Goods Deliver Receive Note not found",
+        message: "Goods Deliver Note not found",
       });
     }
 
-    // Update GDN
     const updateQuery = `
       UPDATE freight_tracking_app.goods_deliver_notes
       SET
@@ -208,10 +218,22 @@ exports.updateGDN = async (req, res) => {
         gross_volume = ?,
         actual_gross_volume = ?,
         status = ?,
-        updated_by = ?,
-        updated_on = NOW(),
         gdn_grn_ref = ?,
-        vehicle_no = ?
+        vehicle_no = ?,
+        driver_id = ?,
+
+        dispatch_location = ?,
+        transport_mode = ?,
+        container_no = ?,
+        container_size = ?,
+        primary_seal_no = ?,
+        secondary_seal_no = ?,
+        custom_doc_status = ?,
+        wharf_staff_id = ?,
+
+        updated_by = ?,
+        updated_on = NOW()
+
       WHERE id = ?
     `;
 
@@ -227,32 +249,47 @@ exports.updateGDN = async (req, res) => {
       gross_volume,
       actual_gross_volume,
       status,
-      updated_by,
       gdn_grn_ref,
       vehicle_no,
+      driver_id,
+
+      dispatch_location,
+      transport_mode,
+      container_no,
+      container_size,
+      primary_seal_no,
+      secondary_seal_no,
+      custom_doc_status,
+      wharf_staff_id,
+
+      updated_by,
       gdnId,
     ]);
 
-    // Remove existing packing list mappings
+    // Remove old packing list mappings
     await connection.query(
-      `UPDATE freight_tracking_app.packing_list
-       SET
-         gdn_id = NULL,
-         updated_by = ?,
-         updated_on = NOW()
-       WHERE gdn_id = ?`,
+      `
+      UPDATE freight_tracking_app.packing_list
+      SET
+        gdn_id = NULL,
+        updated_by = ?,
+        updated_on = NOW()
+      WHERE gdn_id = ?
+      `,
       [updated_by, gdnId],
     );
 
-    // Assign newly selected packing lists
+    // Add new packing list mappings
     if (packing_list_ids && packing_list_ids.length > 0) {
       await connection.query(
-        `UPDATE freight_tracking_app.packing_list
-         SET
-           gdn_id = ?,
-           updated_by = ?,
-           updated_on = NOW()
-         WHERE id IN (?)`,
+        `
+        UPDATE freight_tracking_app.packing_list
+        SET
+          gdn_id = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id IN (?)
+        `,
         [gdnId, updated_by, packing_list_ids],
       );
     }
@@ -261,7 +298,7 @@ exports.updateGDN = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Goods Deliver Receive Note updated successfully",
+      message: "Goods Deliver Note updated successfully",
     });
   } catch (error) {
     await connection.rollback();
@@ -270,7 +307,7 @@ exports.updateGDN = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Error updating Goods Deliver Receive Note",
+      message: "Error updating Goods Deliver Note",
       error: error.message,
     });
   } finally {
@@ -282,12 +319,12 @@ exports.updateGDN = async (req, res) => {
 exports.getAllGDN = async (req, res) => {
   try {
     const query = `
-      SELECT
+     SELECT
         g.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
-        forwarder.name AS forwarder_id,
+        client.name AS client_name,
+        manufacture.name AS manufacture_name,
+        forwarder.name AS forwarder_name,
 
         g.date,
         g.cartoons,
@@ -296,32 +333,56 @@ exports.getAllGDN = async (req, res) => {
         g.actual_gross_weight,
         g.gross_volume,
         g.actual_gross_volume,
+
         g.status,
         g.gdn_grn_ref,
+        g.vehicle_no,
+
+        -- Driver details
+        g.driver_id,
+        driver.name AS driver_name,
+
+        -- Wharf staff details
+        g.wharf_staff_id,
+        wharf.name AS wharf_staff_name,
+
+        g.dispatch_location,
+        g.transport_mode,
+        g.container_no,
+        g.container_size,
+        g.primary_seal_no,
+        g.secondary_seal_no,
+        g.custom_doc_status,
+
         g.created_by,
         g.created_on,
         g.updated_by,
         g.updated_on,
-        g.vehicle_no,
 
         GROUP_CONCAT(p.id) AS packing_list_ids
 
-      FROM freight_tracking_app.goods_deliver_notes g
+    FROM freight_tracking_app.goods_deliver_notes g
 
-      LEFT JOIN freight_tracking_app.clients client
+    LEFT JOIN freight_tracking_app.clients client
         ON g.client_id = client.id
 
-      LEFT JOIN freight_tracking_app.clients manufacture
+    LEFT JOIN freight_tracking_app.clients manufacture
         ON g.manufacture_id = manufacture.id
 
-      LEFT JOIN freight_tracking_app.clients forwarder
+    LEFT JOIN freight_tracking_app.clients forwarder
         ON g.forwarder_id = forwarder.id
 
-      LEFT JOIN freight_tracking_app.packing_list p
+    LEFT JOIN freight_tracking_app.drivers driver
+        ON g.driver_id = driver.id
+
+    LEFT JOIN freight_tracking_app.wharf_staff wharf
+        ON g.wharf_staff_id = wharf.id
+
+    LEFT JOIN freight_tracking_app.packing_list p
         ON p.gdn_id = g.id
 
-      GROUP BY g.id
-      ORDER BY g.id DESC
+    GROUP BY g.id
+    ORDER BY g.id DESC;
     `;
 
     const [rows] = await db.query(query);
@@ -358,9 +419,9 @@ exports.getGDNById = async (req, res) => {
       SELECT
         g.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
-        forwarder.name AS forwarder_id,
+        client.name AS client_name,
+        manufacture.name AS manufacture_name,
+        forwarder.name AS forwarder_name,
 
         g.date,
         g.cartoons,
@@ -369,32 +430,57 @@ exports.getGDNById = async (req, res) => {
         g.actual_gross_weight,
         g.gross_volume,
         g.actual_gross_volume,
+
         g.status,
         g.gdn_grn_ref,
+        g.vehicle_no,
+
+        -- Driver details
+        g.driver_id,
+        driver.name AS driver_name,
+
+        -- Wharf staff details
+        g.wharf_staff_id,
+        wharf.name AS wharf_staff_name,
+
+        g.dispatch_location,
+        g.transport_mode,
+        g.container_no,
+        g.container_size,
+        g.primary_seal_no,
+        g.secondary_seal_no,
+        g.custom_doc_status,
+
         g.created_by,
         g.created_on,
         g.updated_by,
         g.updated_on,
-        g.vehicle_no,
 
         GROUP_CONCAT(p.id) AS packing_list_ids
 
-      FROM freight_tracking_app.goods_deliver_notes g
+        FROM freight_tracking_app.goods_deliver_notes g
 
-      LEFT JOIN freight_tracking_app.clients client
-        ON g.client_id = client.id
+        LEFT JOIN freight_tracking_app.clients client
+            ON g.client_id = client.id
 
-      LEFT JOIN freight_tracking_app.clients manufacture
-        ON g.manufacture_id = manufacture.id
+        LEFT JOIN freight_tracking_app.clients manufacture
+            ON g.manufacture_id = manufacture.id
 
-      LEFT JOIN freight_tracking_app.clients forwarder
-        ON g.forwarder_id = forwarder.id
+        LEFT JOIN freight_tracking_app.clients forwarder
+            ON g.forwarder_id = forwarder.id
 
-      LEFT JOIN freight_tracking_app.packing_list p
-        ON p.gdn_id = g.id
+        LEFT JOIN freight_tracking_app.drivers driver
+            ON g.driver_id = driver.id
 
-      WHERE g.id = ?
-      GROUP BY g.id
+        LEFT JOIN freight_tracking_app.wharf_staff wharf
+            ON g.wharf_staff_id = wharf.id
+
+        LEFT JOIN freight_tracking_app.packing_list p
+            ON p.gdn_id = g.id
+
+        WHERE g.id = ?
+
+        GROUP BY g.id;
     `;
 
     const [rows] = await db.query(query, [id]);
