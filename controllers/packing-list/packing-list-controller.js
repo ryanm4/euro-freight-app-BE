@@ -21,6 +21,7 @@ exports.createPackingList = async (req, res) => {
       document_date,
       shipping_mode, // NEW: needed to build packing_list_no
       status,
+      total_volume,
       created_by,
       items, // parsed packing list line items, sent directly as JSON
     } = req.body;
@@ -94,12 +95,13 @@ exports.createPackingList = async (req, res) => {
         total_gross_weight_kg,
         total_net_weight_kg,
         total_cbm,
+        total_volume,
         shipping_mode,
         status,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
@@ -115,6 +117,7 @@ exports.createPackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      total_volume || null,
       shipping_mode || null,
       status || null,
       created_by,
@@ -227,6 +230,7 @@ exports.updatePackingList = async (req, res) => {
       grn_id,
       ship_to,
       document_date,
+      total_volume,
       shipping_mode,
       status,
       updated_by,
@@ -279,6 +283,7 @@ exports.updatePackingList = async (req, res) => {
         total_gross_weight_kg = ?,
         total_net_weight_kg = ?,
         total_cbm = ?,
+        total_volume = ?,
         shipping_mode = ?,
         status = ?,
         updated_by = ?,
@@ -299,6 +304,7 @@ exports.updatePackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      total_volume || null,
       shipping_mode || null,
       status || null,
       updated_by,
@@ -410,48 +416,48 @@ exports.getAllPackingLists = async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
-        pl.id AS packing_list_id,
-        c.name AS client_name,
-        m.name AS manufacturer_name,
-        pl.date,
-        pl.gdn_id,
-        pl.grn_id,
-        pl.ship_to,
-        pl.document_date,
-        pl.total_quantity,
-        pl.total_cartons,
-        pl.total_gross_weight_kg,
-        pl.total_net_weight_kg,
-        pl.total_cbm,
-        pl.shipping_mode,
-        pl.status AS status,
-        pl.created_by,
-        pl.created_on,
-        pl.updated_by,
-        pl.updated_on,
+          pl.id AS packing_list_id,
+          pl.packing_list_no,
+          c.name AS client_name,
+          m.name AS manufacturer_name,
+          pl.date,
+          pl.gdn_id,
+          pl.grn_id,
+          pl.ship_to,
+          pl.document_date,
+          pl.total_quantity,
+          pl.total_cartons,
+          pl.total_gross_weight_kg,
+          pl.total_net_weight_kg,
+          pl.total_cbm,
+          pl.total_volume,
+          pl.shipping_mode,
+          pl.status AS status,
+          pl.created_by,
+          pl.created_on,
+          pl.updated_by,
+          pl.updated_on,
 
-        po.po_number,
-        po.po_quantity
+          po.po_number,
+          po.po_quantity
 
       FROM freight_tracking_app.packing_list pl
 
       LEFT JOIN freight_tracking_app.clients c
-        ON c.id = pl.client_id
-        AND c.type = '1'
+          ON c.id = CAST(pl.client_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients m
-        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
-        AND m.type = '2'
+          ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
 
       LEFT JOIN (
-        SELECT
-          pli.shipment_id AS packing_list_id,
-          pli.po_number,
-          SUM(pli.quantity) AS po_quantity
-        FROM freight_tracking_app.packing_list_items pli
-        GROUP BY pli.shipment_id, pli.po_number
+          SELECT
+              pli.shipment_id AS packing_list_id,
+              pli.po_number,
+              SUM(pli.quantity) AS po_quantity
+          FROM freight_tracking_app.packing_list_items pli
+          GROUP BY pli.shipment_id, pli.po_number
       ) po
-        ON po.packing_list_id = pl.id
+          ON po.packing_list_id = pl.id
 
       ORDER BY pl.id DESC
     `);
@@ -462,6 +468,7 @@ exports.getAllPackingLists = async (req, res) => {
       if (!map.has(r.packing_list_id)) {
         map.set(r.packing_list_id, {
           packing_list_id: r.packing_list_id,
+          packing_list_no: r.packing_list_no,
           client_name: r.client_name,
           manufacturer_name: r.manufacturer_name,
           gdn_id: r.gdn_id,
@@ -474,6 +481,7 @@ exports.getAllPackingLists = async (req, res) => {
           total_gross_weight_kg: r.total_gross_weight_kg,
           total_net_weight_kg: r.total_net_weight_kg,
           total_cbm: r.total_cbm,
+          total_volume: r.total_volume,
           status: r.status,
           shipping_mode: r.shipping_mode,
           created_by: r.created_by,
@@ -526,6 +534,7 @@ exports.getPackingListById = async (req, res) => {
         pl.total_gross_weight_kg,
         pl.total_net_weight_kg,
         pl.total_cbm,
+        pl.total_volume,
         pl.shipping_mode AS shipping_mode,
         pl.status AS status,
         pl.created_by,
@@ -536,12 +545,10 @@ exports.getPackingListById = async (req, res) => {
       FROM freight_tracking_app.packing_list pl
 
       LEFT JOIN freight_tracking_app.clients c
-        ON c.id = pl.client_id
-        AND c.type = '1'
+          ON c.id = CAST(pl.client_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients m
-        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
-        AND m.type = '2'
+          ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
 
       WHERE pl.id = ?
     `,
@@ -652,6 +659,7 @@ exports.getPackingListById = async (req, res) => {
       total_gross_weight_kg: rows[0].total_gross_weight_kg,
       total_net_weight_kg: rows[0].total_net_weight_kg,
       total_cbm: rows[0].total_cbm,
+      total_volume: rows[0].total_volume,
       shipping_mode: rows[0].shipping_mode,
       status: rows[0].status,
       created_by: rows[0].created_by,
