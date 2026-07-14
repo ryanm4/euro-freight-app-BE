@@ -319,7 +319,7 @@ exports.updateGDN = async (req, res) => {
 exports.getAllGDN = async (req, res) => {
   try {
     const query = `
-     SELECT
+      SELECT
         g.id,
 
         client.name AS client_name,
@@ -359,38 +359,51 @@ exports.getAllGDN = async (req, res) => {
         g.updated_by,
         g.updated_on,
 
-        GROUP_CONCAT(p.id) AS packing_list_ids
+        -- Packing list details
+        COALESCE(
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', p.id,
+              'shipping_mode', p.shipping_mode
+            )
+          ),
+          JSON_ARRAY()
+        ) AS packing_lists
 
-    FROM freight_tracking_app.goods_deliver_notes g
 
-    LEFT JOIN freight_tracking_app.clients client
+      FROM freight_tracking_app.goods_deliver_notes g
+
+      LEFT JOIN freight_tracking_app.clients client
         ON g.client_id = client.id
 
-    LEFT JOIN freight_tracking_app.clients manufacture
+      LEFT JOIN freight_tracking_app.clients manufacture
         ON g.manufacture_id = manufacture.id
 
-    LEFT JOIN freight_tracking_app.clients forwarder
+      LEFT JOIN freight_tracking_app.clients forwarder
         ON g.forwarder_id = forwarder.id
 
-    LEFT JOIN freight_tracking_app.drivers driver
+      LEFT JOIN freight_tracking_app.drivers driver
         ON g.driver_id = driver.id
 
-    LEFT JOIN freight_tracking_app.wharf_staff wharf
+      LEFT JOIN freight_tracking_app.wharf_staff wharf
         ON g.wharf_staff_id = wharf.id
 
-    LEFT JOIN freight_tracking_app.packing_list p
+      LEFT JOIN freight_tracking_app.packing_list p
         ON p.gdn_id = g.id
 
-    GROUP BY g.id
-    ORDER BY g.id DESC;
+      GROUP BY g.id
+
+      ORDER BY g.id DESC;
     `;
 
     const [rows] = await db.query(query);
 
     const result = rows.map((row) => ({
       ...row,
-      packing_list_ids: row.packing_list_ids
-        ? row.packing_list_ids.split(",").map(Number)
+
+      // mysql2 already returns JSON as object
+      packing_lists: Array.isArray(row.packing_lists)
+        ? row.packing_lists.filter((item) => item.id !== null)
         : [],
     }));
 
@@ -400,11 +413,11 @@ exports.getAllGDN = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error(error);
+    console.error("Get All GDN Error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Error retrieving Goods Deliver Receive Notes",
+      message: "Error retrieving Goods Deliver Notes",
       error: error.message,
     });
   }
@@ -456,31 +469,41 @@ exports.getGDNById = async (req, res) => {
         g.updated_by,
         g.updated_on,
 
-        GROUP_CONCAT(p.id) AS packing_list_ids
+        -- Packing list details
+        COALESCE(
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', p.id,
+              'shipping_mode', p.shipping_mode
+            )
+          ),
+          JSON_ARRAY()
+        ) AS packing_lists
 
-        FROM freight_tracking_app.goods_deliver_notes g
 
-        LEFT JOIN freight_tracking_app.clients client
-            ON g.client_id = client.id
+      FROM freight_tracking_app.goods_deliver_notes g
 
-        LEFT JOIN freight_tracking_app.clients manufacture
-            ON g.manufacture_id = manufacture.id
+      LEFT JOIN freight_tracking_app.clients client
+        ON g.client_id = client.id
 
-        LEFT JOIN freight_tracking_app.clients forwarder
-            ON g.forwarder_id = forwarder.id
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON g.manufacture_id = manufacture.id
 
-        LEFT JOIN freight_tracking_app.drivers driver
-            ON g.driver_id = driver.id
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON g.forwarder_id = forwarder.id
 
-        LEFT JOIN freight_tracking_app.wharf_staff wharf
-            ON g.wharf_staff_id = wharf.id
+      LEFT JOIN freight_tracking_app.drivers driver
+        ON g.driver_id = driver.id
 
-        LEFT JOIN freight_tracking_app.packing_list p
-            ON p.gdn_id = g.id
+      LEFT JOIN freight_tracking_app.wharf_staff wharf
+        ON g.wharf_staff_id = wharf.id
 
-        WHERE g.id = ?
+      LEFT JOIN freight_tracking_app.packing_list p
+        ON p.gdn_id = g.id
 
-        GROUP BY g.id;
+      WHERE g.id = ?
+
+      GROUP BY g.id;
     `;
 
     const [rows] = await db.query(query, [id]);
@@ -488,14 +511,16 @@ exports.getGDNById = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Goods Deliver Receive Note not found",
+        message: "Goods Deliver Note not found",
       });
     }
 
     const result = {
       ...rows[0],
-      packing_list_ids: rows[0].packing_list_ids
-        ? rows[0].packing_list_ids.split(",").map(Number)
+
+      // mysql2 returns JSON_ARRAYAGG as object array
+      packing_lists: Array.isArray(rows[0].packing_lists)
+        ? rows[0].packing_lists.filter((item) => item.id !== null)
         : [],
     };
 
@@ -504,11 +529,11 @@ exports.getGDNById = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error(error);
+    console.error("Get GDN By ID Error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Error retrieving Goods Deliver Receive Note",
+      message: "Error retrieving Goods Deliver Note",
       error: error.message,
     });
   }
