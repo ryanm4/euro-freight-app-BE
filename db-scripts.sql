@@ -84,6 +84,7 @@ CREATE TABLE
         `total_gross_weight_kg` DECIMAL(10,3) NULL,
         `total_net_weight_kg` DECIMAL(10,3) NULL ,
         `total_cbm` DECIMAL(10,3) NULL, 
+        `total_volume` DECIMAL(10,3) NULL,
         `shipping_mode` VARCHAR(45) NULL,
         `status` VARCHAR(45) NULL,
         `created_by` VARCHAR(45) NULL,

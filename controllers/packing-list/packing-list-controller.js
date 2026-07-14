@@ -21,6 +21,7 @@ exports.createPackingList = async (req, res) => {
       document_date,
       shipping_mode, // NEW: needed to build packing_list_no
       status,
+      total_volume,
       created_by,
       items, // parsed packing list line items, sent directly as JSON
     } = req.body;
@@ -94,12 +95,13 @@ exports.createPackingList = async (req, res) => {
         total_gross_weight_kg,
         total_net_weight_kg,
         total_cbm,
+        total_volume,
         shipping_mode,
         status,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
@@ -115,6 +117,7 @@ exports.createPackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      total_volume || null,
       shipping_mode || null,
       status || null,
       created_by,
@@ -227,6 +230,7 @@ exports.updatePackingList = async (req, res) => {
       grn_id,
       ship_to,
       document_date,
+      total_volume,
       shipping_mode,
       status,
       updated_by,
@@ -279,6 +283,7 @@ exports.updatePackingList = async (req, res) => {
         total_gross_weight_kg = ?,
         total_net_weight_kg = ?,
         total_cbm = ?,
+        total_volume = ?,
         shipping_mode = ?,
         status = ?,
         updated_by = ?,
@@ -299,6 +304,7 @@ exports.updatePackingList = async (req, res) => {
       totals.totalGrossWeight,
       totals.totalNetWeight,
       totals.totalCbm,
+      total_volume || null,
       shipping_mode || null,
       status || null,
       updated_by,
@@ -424,6 +430,7 @@ exports.getAllPackingLists = async (req, res) => {
           pl.total_gross_weight_kg,
           pl.total_net_weight_kg,
           pl.total_cbm,
+          pl.total_volume,
           pl.shipping_mode,
           pl.status AS status,
           pl.created_by,
@@ -474,6 +481,7 @@ exports.getAllPackingLists = async (req, res) => {
           total_gross_weight_kg: r.total_gross_weight_kg,
           total_net_weight_kg: r.total_net_weight_kg,
           total_cbm: r.total_cbm,
+          total_volume: r.total_volume,
           status: r.status,
           shipping_mode: r.shipping_mode,
           created_by: r.created_by,
@@ -526,6 +534,7 @@ exports.getPackingListById = async (req, res) => {
         pl.total_gross_weight_kg,
         pl.total_net_weight_kg,
         pl.total_cbm,
+        pl.total_volume,
         pl.shipping_mode AS shipping_mode,
         pl.status AS status,
         pl.created_by,
@@ -650,6 +659,7 @@ exports.getPackingListById = async (req, res) => {
       total_gross_weight_kg: rows[0].total_gross_weight_kg,
       total_net_weight_kg: rows[0].total_net_weight_kg,
       total_cbm: rows[0].total_cbm,
+      total_volume: rows[0].total_volume,
       shipping_mode: rows[0].shipping_mode,
       status: rows[0].status,
       created_by: rows[0].created_by,
