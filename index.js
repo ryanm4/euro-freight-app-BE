@@ -13,6 +13,7 @@ const blRoutes = require('./routes/bill-of-lading/bl-route');
 const shipmentRoutes = require('./routes/shipment/shipment-routes');
 const authRoutes = require('./routes/auth/auth-route');
 const driverRoutes = require('./routes/drivers/driver-route');
+const wharfRoutes = require('./routes/wharf/wharf-route');
 
 dotenv.config({ path: './config.env' });
 const port = process.env.PORT || 8000;
@@ -46,3 +47,4 @@ app.use('/api/v1/bill_of_lading', blRoutes);
 app.use('/api/v1/shipments', shipmentRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/drivers', driverRoutes);
+app.use('/api/v1/wharf', wharfRoutes);
