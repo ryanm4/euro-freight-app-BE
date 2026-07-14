@@ -81,10 +81,10 @@ CREATE TABLE
         `ship_to` VARCHAR(45) NULL,
         `document_date` DATE NULL,
         `total_cartons` INT NULL,
-        `total_gross_weight_kg` DECIMAL(10,3) NULL,
-        `total_net_weight_kg` DECIMAL(10,3) NULL ,
-        `total_cbm` DECIMAL(10,3) NULL, 
-        `total_volume` DECIMAL(10,3) NULL,
+        `total_gross_weight_kg` DECIMAL(10, 3) NULL,
+        `total_net_weight_kg` DECIMAL(10, 3) NULL,
+        `total_cbm` DECIMAL(10, 3) NULL,
+        `total_volume` DECIMAL(10, 3) NULL,
         `shipping_mode` VARCHAR(45) NULL,
         `status` VARCHAR(45) NULL,
         `created_by` VARCHAR(45) NULL,
@@ -187,12 +187,21 @@ CREATE TABLE
         `gross_volume` VARCHAR(45) NULL,
         `actual_gross_volume` VARCHAR(45) NULL,
         `status` VARCHAR(45) NULL,
+        `gdn_grn_ref` VARCHAR(45) NULL,
+        `vehicle_no` VARCHAR(45) NULL,
+        `driver_id` INT NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
         `updated_on` DATETIME NULL,
-        `gdn_grn_ref` VARCHAR(45) NULL,
-        `vehicle_no` VARCHAR(45) NULL,
+        `dispatch_location` VARCHAR(45) NULL  ,
+        `transport_mode` VARCHAR(45) NULL  ,
+        `container_no` VARCHAR(45) NULL  ,
+        `container_size` VARCHAR(45) NULL,
+        `primary_seal_no` VARCHAR(45) NULL  ,
+        `secondary_seal_no` VARCHAR(45) NULL ,
+        `custom_doc_status` VARCHAR(45) NULL  ,
+        `wharf_staff_id` VARCHAR(45) NULL ;
         PRIMARY KEY (`id`)
     );
 
@@ -284,4 +293,24 @@ CREATE TABLE
         PRIMARY KEY (`id`),
         INDEX `po_id_idx` (`po_id` ASC) VISIBLE,
         CONSTRAINT `po_id` FOREIGN KEY (`po_id`) REFERENCES `freight_tracking_app`.`purchase_order` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`drivers` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `name` VARCHAR(45) NULL,
+        `nic_no` VARCHAR(45) NULL,
+        `manufacturer_id` INT NOT NULL,
+        `contact_no` VARCHAR(45) NULL,
+        PRIMARY KEY (`id`),
+        INDEX `manufacturer_id_idx` (`manufacturer_id` ASC) VISIBLE,
+        CONSTRAINT `manufacturer_id` FOREIGN KEY (`manufacturer_id`) REFERENCES `freight_tracking_app`.`clients` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`wharf_staff` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `name` VARCHAR(45) NULL,
+        `contact_no` VARCHAR(45) NULL,
+        PRIMARY KEY (`id`)
     );
