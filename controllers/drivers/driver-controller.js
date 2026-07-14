@@ -5,7 +5,7 @@ const db = require("../../sql-connection");
 // ============================
 exports.createDriver = async (req, res) => {
   try {
-    const { name, nic_no, manufacturer_id } = req.body;
+    const { name, nic_no, manufacturer_id, contact_no } = req.body;
 
     if (!name || !manufacturer_id) {
       return res.status(400).json({
@@ -48,7 +48,7 @@ exports.createDriver = async (req, res) => {
         name,
         nic_no,
         manufacturer_id,
-        contact_no
+        contact_no,
       },
     });
   } catch (error) {
