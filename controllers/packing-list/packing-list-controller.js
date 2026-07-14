@@ -1,6 +1,6 @@
 const db = require("../../sql-connection");
 const fs = require("fs");
-
+const pdfParse = require("pdf-parse");
 const { parsePackingListText, summarize } = require("./Packing-list-parser");
 const { formatDateYYYYMMDD } = require("../../helpers/helper-functions");
 const { PACKING_LIST_STATUSES } = require("../../types/types");
@@ -676,7 +676,6 @@ exports.getPackingListById = async (req, res) => {
 
 exports.uploadPackingListFile = async (req, res) => {
   try {
-    const { PDFParse } = require("pdf-parse");
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -684,17 +683,18 @@ exports.uploadPackingListFile = async (req, res) => {
       });
     }
 
-    const parser = new PDFParse({
-      data: req.file.buffer,
-    });
+    // Extract text from PDF
+    const pdfData = await pdfParse(req.file.buffer);
 
-    const pdfData = await parser.getText();
+    console.log("PDF TEXT LENGTH:", pdfData.text.length);
 
+    // Parse packing list text
     const { rows, errors } = parsePackingListText(pdfData.text);
 
     return res.status(200).json({
       success: true,
       filename: req.file.originalname,
+      pages: pdfData.numpages,
       rowCount: rows.length,
       rowsFailedToParse: errors.length,
       totals: summarize(rows),
@@ -702,7 +702,7 @@ exports.uploadPackingListFile = async (req, res) => {
       parseErrors: errors,
     });
   } catch (err) {
-    console.error(err);
+    console.error("UPLOAD PACKING LIST ERROR:", err);
 
     return res.status(500).json({
       success: false,
