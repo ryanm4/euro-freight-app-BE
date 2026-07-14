@@ -536,12 +536,10 @@ exports.getPackingListById = async (req, res) => {
       FROM freight_tracking_app.packing_list pl
 
       LEFT JOIN freight_tracking_app.clients c
-        ON c.id = pl.client_id
-        AND c.type = '1'
+          ON c.id = CAST(pl.client_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients m
-        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
-        AND m.type = '2'
+          ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
 
       WHERE pl.id = ?
     `,
