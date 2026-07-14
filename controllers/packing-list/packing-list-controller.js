@@ -410,48 +410,47 @@ exports.getAllPackingLists = async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
-        pl.id AS packing_list_id,
-        c.name AS client_name,
-        m.name AS manufacturer_name,
-        pl.date,
-        pl.gdn_id,
-        pl.grn_id,
-        pl.ship_to,
-        pl.document_date,
-        pl.total_quantity,
-        pl.total_cartons,
-        pl.total_gross_weight_kg,
-        pl.total_net_weight_kg,
-        pl.total_cbm,
-        pl.shipping_mode,
-        pl.status AS status,
-        pl.created_by,
-        pl.created_on,
-        pl.updated_by,
-        pl.updated_on,
+          pl.id AS packing_list_id,
+          pl.packing_list_no,
+          c.name AS client_name,
+          m.name AS manufacturer_name,
+          pl.date,
+          pl.gdn_id,
+          pl.grn_id,
+          pl.ship_to,
+          pl.document_date,
+          pl.total_quantity,
+          pl.total_cartons,
+          pl.total_gross_weight_kg,
+          pl.total_net_weight_kg,
+          pl.total_cbm,
+          pl.shipping_mode,
+          pl.status AS status,
+          pl.created_by,
+          pl.created_on,
+          pl.updated_by,
+          pl.updated_on,
 
-        po.po_number,
-        po.po_quantity
+          po.po_number,
+          po.po_quantity
 
       FROM freight_tracking_app.packing_list pl
 
       LEFT JOIN freight_tracking_app.clients c
-        ON c.id = pl.client_id
-        AND c.type = '1'
+          ON c.id = CAST(pl.client_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients m
-        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
-        AND m.type = '2'
+          ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
 
       LEFT JOIN (
-        SELECT
-          pli.shipment_id AS packing_list_id,
-          pli.po_number,
-          SUM(pli.quantity) AS po_quantity
-        FROM freight_tracking_app.packing_list_items pli
-        GROUP BY pli.shipment_id, pli.po_number
+          SELECT
+              pli.shipment_id AS packing_list_id,
+              pli.po_number,
+              SUM(pli.quantity) AS po_quantity
+          FROM freight_tracking_app.packing_list_items pli
+          GROUP BY pli.shipment_id, pli.po_number
       ) po
-        ON po.packing_list_id = pl.id
+          ON po.packing_list_id = pl.id
 
       ORDER BY pl.id DESC
     `);
@@ -462,6 +461,7 @@ exports.getAllPackingLists = async (req, res) => {
       if (!map.has(r.packing_list_id)) {
         map.set(r.packing_list_id, {
           packing_list_id: r.packing_list_id,
+          packing_list_no: r.packing_list_no,
           client_name: r.client_name,
           manufacturer_name: r.manufacturer_name,
           gdn_id: r.gdn_id,
