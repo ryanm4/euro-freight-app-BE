@@ -111,22 +111,28 @@ exports.createGDN = async (req, res) => {
       [gdnNo, gdnId],
     );
 
-    // 4. Update Packing Lists → attach GDN
+    // 4. Update Packing Lists → attach GDN & Close them
     if (packing_list_ids && packing_list_ids.length > 0) {
       await connection.query(
         `
         UPDATE freight_tracking_app.packing_list
         SET
           gdn_id = ?,
+          status = ?,
           updated_by = ?,
           updated_on = NOW()
         WHERE id IN (?)
         `,
-        [gdnId, created_by, packing_list_ids],
+        [
+          gdnId,
+          "Closed", // Change to "closed" if that's what your system uses
+          created_by,
+          packing_list_ids,
+        ],
       );
     }
 
-    // 5. Update Purchase Orders → set cargo dispatch date
+    // 5. Update Purchase Orders → set cargo dispatch date & status
     await connection.query(
       `
       UPDATE freight_tracking_app.purchase_order po
@@ -134,11 +140,12 @@ exports.createGDN = async (req, res) => {
         ON po.packing_list_id = pl.id
       SET
         po.cargo_dispatch_date = ?,
+        po.status = ?,
         po.updated_by = ?,
         po.updated_on = NOW()
       WHERE pl.gdn_id = ?
       `,
-      [date, created_by, gdnId],
+      [date, "GDN Created", created_by, gdnId],
     );
 
     await connection.commit();
