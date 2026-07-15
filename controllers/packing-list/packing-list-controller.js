@@ -414,7 +414,9 @@ exports.updatePackingList = async (req, res) => {
 // GET ALL Packing Lists
 exports.getAllPackingLists = async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const { status } = req.query;
+
+    let query = `
       SELECT 
           pl.id AS packing_list_id,
           pl.packing_list_no,
@@ -432,7 +434,7 @@ exports.getAllPackingLists = async (req, res) => {
           pl.total_cbm,
           pl.total_volume,
           pl.shipping_mode,
-          pl.status AS status,
+          pl.status,
           pl.created_by,
           pl.created_on,
           pl.updated_by,
@@ -458,9 +460,18 @@ exports.getAllPackingLists = async (req, res) => {
           GROUP BY pli.shipment_id, pli.po_number
       ) po
           ON po.packing_list_id = pl.id
+    `;
 
-      ORDER BY pl.id DESC
-    `);
+    const params = [];
+
+    if (status) {
+      query += ` WHERE pl.status = ?`;
+      params.push(status);
+    }
+
+    query += ` ORDER BY pl.id DESC`;
+
+    const [rows] = await db.query(query, params);
 
     const map = new Map();
 
