@@ -491,7 +491,14 @@ exports.getGDNById = async (req, res) => {
             JSON_OBJECT(
               'id', p.id,
               'shipping_mode', p.shipping_mode,
-              'packing_list_no', p.packing_list_no
+              'packing_list_no', p.packing_list_no,
+              'total_quantity', p.total_quantity,
+              'date', p.date,
+              'status', p.status,
+              'total_cartons', p.total_cartons,
+              'total_gross_weight_kg', p.total_gross_weight_kg,
+              'total_net_weight_kg', p.total_net_weight_kg,
+              'total_cbm', p.total_cbm
             )
           ),
           JSON_ARRAY()
