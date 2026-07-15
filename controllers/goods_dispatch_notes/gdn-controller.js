@@ -378,7 +378,8 @@ exports.getAllGDN = async (req, res) => {
           JSON_ARRAYAGG(
             JSON_OBJECT(
               'id', p.id,
-              'shipping_mode', p.shipping_mode
+              'shipping_mode', p.shipping_mode,
+              'packing_list_no', p.packing_list_no
             )
           ),
           JSON_ARRAY()
@@ -489,7 +490,8 @@ exports.getGDNById = async (req, res) => {
           JSON_ARRAYAGG(
             JSON_OBJECT(
               'id', p.id,
-              'shipping_mode', p.shipping_mode
+              'shipping_mode', p.shipping_mode,
+              'packing_list_no', p.packing_list_no
             )
           ),
           JSON_ARRAY()
