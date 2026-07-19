@@ -38,9 +38,18 @@
  *     ctn, grossWeightKg, netWeightKg, ctnDemi, cbm }
  */
 
-const fs = require('fs');
-const path = require('path');
-const ExcelJS = require('exceljs');
+const fs = require("fs");
+const path = require("path");
+const ExcelJS = require("exceljs");
+
+function ensurePdfjsGlobals() {
+  if (typeof globalThis.DOMMatrix === "undefined") {
+    const { DOMMatrix, ImageData, Path2D } = require("@napi-rs/canvas");
+    globalThis.DOMMatrix = DOMMatrix;
+    globalThis.ImageData = ImageData;
+    globalThis.Path2D = Path2D;
+  }
+}
 
 const PO_NUMBER_REGEX = /^W\d{5}-\d(?:-\d)?$/;
 
@@ -49,20 +58,20 @@ const PO_NUMBER_REGEX = /^W\d{5}-\d(?:-\d)?$/;
 // A text run is assigned to the first bucket whose `max` is greater than
 // the run's x0. Order matters — narrowest/leftmost first.
 const COLUMN_BUCKETS = [
-  { key: 'lineNo', max: 190 },
-  { key: 'poNumber', max: 250 },
-  { key: 'sku', max: 355 },
-  { key: 'itemName', max: 462 },
-  { key: 'color', max: 559 },
-  { key: 'size', max: 629 },
-  { key: 'co', max: 670 },
-  { key: 'unitCost', max: 713 },
-  { key: 'quantity', max: 758 },
-  { key: 'ctn', max: 803 },
-  { key: 'grossWeight', max: 854 },
-  { key: 'netWeight', max: 910 },
-  { key: 'dimensions', max: 991 },
-  { key: 'cbm', max: Infinity },
+  { key: "lineNo", max: 190 },
+  { key: "poNumber", max: 250 },
+  { key: "sku", max: 355 },
+  { key: "itemName", max: 462 },
+  { key: "color", max: 559 },
+  { key: "size", max: 629 },
+  { key: "co", max: 670 },
+  { key: "unitCost", max: 713 },
+  { key: "quantity", max: 758 },
+  { key: "ctn", max: 803 },
+  { key: "grossWeight", max: 854 },
+  { key: "netWeight", max: 910 },
+  { key: "dimensions", max: 991 },
+  { key: "cbm", max: Infinity },
 ];
 
 function bucketForX(x) {
@@ -77,8 +86,10 @@ function bucketForX(x) {
  * page number and (x, top) position.
  */
 async function extractTextRuns(pdfBuffer) {
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  ensurePdfjsGlobals(); // <-- add this line, before the dynamic import below
+  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) })
+    .promise;
 
   const runs = [];
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
@@ -139,27 +150,30 @@ function rowsToLineItems(rows) {
   const errors = [];
 
   for (const row of rows) {
-    const poNumber = (row.cells.poNumber || '').trim();
+    const poNumber = (row.cells.poNumber || "").trim();
     if (!PO_NUMBER_REGEX.test(poNumber)) continue; // header/footer/info rows
 
-    const quantity = parseInt((row.cells.quantity || '').replace(/[^\d]/g, ''), 10);
-    const ctnCount = parseInt((row.cells.ctn || '').replace(/[^\d]/g, ''), 10);
+    const quantity = parseInt(
+      (row.cells.quantity || "").replace(/[^\d]/g, ""),
+      10,
+    );
+    const ctnCount = parseInt((row.cells.ctn || "").replace(/[^\d]/g, ""), 10);
     const unitCost = parseFloat(row.cells.unitCost);
     const grossWeightKg = parseFloat(row.cells.grossWeight);
     const netWeightKg = parseFloat(row.cells.netWeight);
     const cbm = parseFloat(row.cells.cbm);
-    const sku = (row.cells.sku || '').trim();
-    const dimensions = (row.cells.dimensions || '').replace(/\s+/g, ' ').trim();
-    const lineNoMatch = (row.cells.lineNo || '').match(/\d+/);
+    const sku = (row.cells.sku || "").trim();
+    const dimensions = (row.cells.dimensions || "").replace(/\s+/g, " ").trim();
+    const lineNoMatch = (row.cells.lineNo || "").match(/\d+/);
 
     const item = {
       ctnNo: lineNoMatch ? parseInt(lineNoMatch[0], 10) : null,
       poNumber,
       sku,
-      itemName: (row.cells.itemName || '').replace(/\s+/g, ' ').trim(),
-      color: (row.cells.color || '').replace(/\s+/g, ' ').trim(),
-      size: (row.cells.size || '').trim(),
-      co: (row.cells.co || '').trim(),
+      itemName: (row.cells.itemName || "").replace(/\s+/g, " ").trim(),
+      color: (row.cells.color || "").replace(/\s+/g, " ").trim(),
+      size: (row.cells.size || "").trim(),
+      co: (row.cells.co || "").trim(),
       unitCost: Number.isFinite(unitCost) ? unitCost : 0,
       quantity,
       ctn: Number.isFinite(ctnCount) ? ctnCount : 1,
@@ -196,7 +210,13 @@ function summarize(items) {
       totalNetWeight: acc.totalNetWeight + (r.netWeightKg || 0),
       totalCbm: acc.totalCbm + (r.cbm || 0),
     }),
-    { totalQuantity: 0, totalCartons: 0, totalGrossWeight: 0, totalNetWeight: 0, totalCbm: 0 }
+    {
+      totalQuantity: 0,
+      totalCartons: 0,
+      totalGrossWeight: 0,
+      totalNetWeight: 0,
+      totalCbm: 0,
+    },
   );
 
   return {
@@ -209,26 +229,26 @@ function summarize(items) {
 }
 
 const EXCEL_COLUMNS = [
-  { header: 'CTN NO', key: 'ctnNo', width: 8 },
-  { header: 'PO Number', key: 'poNumber', width: 14 },
-  { header: 'Sku', key: 'sku', width: 16 },
-  { header: 'Item Name (Style)', key: 'itemName', width: 20 },
-  { header: 'Color', key: 'color', width: 18 },
-  { header: 'Size', key: 'size', width: 8 },
-  { header: 'C.O.', key: 'co', width: 6 },
-  { header: 'Unit Cost', key: 'unitCost', width: 10 },
-  { header: 'Quantity', key: 'quantity', width: 10 },
-  { header: 'CTN', key: 'ctn', width: 6 },
-  { header: 'G.W. (KGS)', key: 'grossWeightKg', width: 12 },
-  { header: 'N.W. (KGS)', key: 'netWeightKg', width: 12 },
-  { header: 'CTN Demi', key: 'ctnDemi', width: 20 },
-  { header: 'CBM', key: 'cbm', width: 10 },
+  { header: "CTN NO", key: "ctnNo", width: 8 },
+  { header: "PO Number", key: "poNumber", width: 14 },
+  { header: "Sku", key: "sku", width: 16 },
+  { header: "Item Name (Style)", key: "itemName", width: 20 },
+  { header: "Color", key: "color", width: 18 },
+  { header: "Size", key: "size", width: 8 },
+  { header: "C.O.", key: "co", width: 6 },
+  { header: "Unit Cost", key: "unitCost", width: 10 },
+  { header: "Quantity", key: "quantity", width: 10 },
+  { header: "CTN", key: "ctn", width: 6 },
+  { header: "G.W. (KGS)", key: "grossWeightKg", width: 12 },
+  { header: "N.W. (KGS)", key: "netWeightKg", width: 12 },
+  { header: "CTN Demi", key: "ctnDemi", width: 20 },
+  { header: "CBM", key: "cbm", width: 10 },
 ];
 
 /** Step A: write parsed line items to a real .xlsx file. */
 async function writeExcel(items, excelPath) {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Packing List');
+  const sheet = workbook.addWorksheet("Packing List");
   sheet.columns = EXCEL_COLUMNS;
   sheet.getRow(1).font = { bold: true };
   for (const item of items) sheet.addRow(item);
@@ -242,14 +262,16 @@ async function readExcelToJson(excelPath) {
   await workbook.xlsx.readFile(excelPath);
   const sheet = workbook.worksheets[0];
 
-  const keys = EXCEL_COLUMNS.map(c => c.key);
+  const keys = EXCEL_COLUMNS.map((c) => c.key);
   const items = [];
 
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
     const values = row.values.slice(1); // exceljs row.values is 1-indexed
     const obj = {};
-    keys.forEach((key, i) => { obj[key] = values[i] !== undefined ? values[i] : null; });
+    keys.forEach((key, i) => {
+      obj[key] = values[i] !== undefined ? values[i] : null;
+    });
     items.push(obj);
   });
 
