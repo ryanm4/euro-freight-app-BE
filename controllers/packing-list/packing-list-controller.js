@@ -1,5 +1,8 @@
 const db = require("../../sql-connection");
 const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const { convertPackingListPdfToExcelAndJson } = require("./pdfToExcelJson");
 const pdfParse = require("pdf-parse");
 const { parsePackingListText, summarize } = require("./Packing-list-parser");
 const { formatDateYYYYMMDD } = require("../../helpers/helper-functions");
@@ -7,6 +10,15 @@ const { PACKING_LIST_STATUSES } = require("../../types/types");
 
 exports.createPackingList = async (req, res) => {
   const connection = await db.getConnection();
+
+  // Coerces a value to a finite number, or returns `fallback` (null by
+  // default) if it can't be — used to guard against NaN reaching mysql2,
+  // which writes NaN into the query unquoted and MySQL then reads as a
+  // column name (-> "Unknown column 'NaN' in 'field list'").
+  const toNumber = (value, fallback = null) => {
+    const n = typeof value === "number" ? value : parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
 
   try {
     await connection.beginTransaction();
@@ -30,6 +42,32 @@ exports.createPackingList = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "items is required",
+      });
+    }
+
+    // Validate the numeric fields that are NOT NULL in packing_list_items
+    // up front, so a single bad row returns a clear 400 instead of a raw
+    // MySQL error mid-transaction.
+    const invalidItems = [];
+    items.forEach((r, index) => {
+      const badFields = [];
+      if (toNumber(r.quantity) === null) badFields.push("quantity");
+      if (toNumber(r.grossWeightKg) === null) badFields.push("grossWeightKg");
+      if (toNumber(r.netWeightKg) === null) badFields.push("netWeightKg");
+      if (toNumber(r.cbm) === null) badFields.push("cbm");
+      if (!r.poNumber) badFields.push("poNumber");
+      if (!r.itemName) badFields.push("itemName");
+      if (badFields.length > 0) {
+        invalidItems.push({ index, poNumber: r.poNumber, sku: r.sku, badFields });
+      }
+    });
+
+    if (invalidItems.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Some items have missing or invalid numeric fields",
+        invalidItems,
       });
     }
 
@@ -77,7 +115,23 @@ exports.createPackingList = async (req, res) => {
       });
     }
 
-    const totals = summarize(items);
+    // Totals for the packing_list header row. Computed inline (rather than
+    // via the shared summarize() helper) so a stale field name elsewhere in
+    // the codebase can't silently reintroduce a NaN into these sums — every
+    // addend goes through toNumber() first.
+    const totals = items.reduce(
+      (acc, r) => ({
+        totalQuantity: acc.totalQuantity + toNumber(r.quantity, 0),
+        totalCartons: acc.totalCartons + toNumber(r.ctn, 1),
+        totalGrossWeight: acc.totalGrossWeight + toNumber(r.grossWeightKg, 0),
+        totalNetWeight: acc.totalNetWeight + toNumber(r.netWeightKg, 0),
+        totalCbm: acc.totalCbm + toNumber(r.cbm, 0),
+      }),
+      { totalQuantity: 0, totalCartons: 0, totalGrossWeight: 0, totalNetWeight: 0, totalCbm: 0 },
+    );
+    totals.totalGrossWeight = +totals.totalGrossWeight.toFixed(3);
+    totals.totalNetWeight = +totals.totalNetWeight.toFixed(3);
+    totals.totalCbm = +totals.totalCbm.toFixed(3);
 
     // 1. Create packing list (header) using totals derived from the submitted items
     const insertPackingListQuery = `
@@ -144,22 +198,26 @@ exports.createPackingList = async (req, res) => {
       packingListId,
       r.poNumber,
       r.sku,
-      r.itemDescription,
+      r.itemName,
+      r.color || null,
       r.size,
-      r.unitCost,
-      r.quantity,
-      r.ctnCount,
-      r.grossWeightKg,
-      r.netWeightKg,
-      r.cartonDimensions,
-      r.cbm,
+      r.co || null,
+      toNumber(r.unitCost, 0),
+      toNumber(r.quantity, 0),
+      toNumber(r.ctn, 1),
+      toNumber(r.grossWeightKg, 0),
+      toNumber(r.netWeightKg, 0),
+      r.ctnDemi || null,
+      toNumber(r.cbm, 0),
+      r.ctnNo != null ? String(r.ctnNo) : null,
+      created_by || null,
     ]);
 
     await connection.query(
       `
         INSERT INTO freight_tracking_app.packing_list_items
-          (shipment_id, po_number, sku, item_description, size, unit_cost,
-           quantity, ctn_count, gross_weight_kg, net_weight_kg, carton_dimensions, cbm)
+          (shipment_id, poNumber, sku, itemName, color, size, co, unitCost,
+           quantity, ctn, grossWeightKg, netWeightKg, ctnDemi, cbm, ctnNo, created_by)
         VALUES ?
       `,
       [itemValues],
@@ -694,6 +752,7 @@ exports.getPackingListById = async (req, res) => {
 };
 
 exports.uploadPackingListFile = async (req, res) => {
+  let excelPath;
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -702,31 +761,32 @@ exports.uploadPackingListFile = async (req, res) => {
       });
     }
 
-    // Extract text from PDF
-    const pdfData = await pdfParse(req.file.buffer);
+    // Write the generated .xlsx to a temp path (swap for S3/etc. if you want to keep it)
+    excelPath = path.join(os.tmpdir(), `packing-list-${Date.now()}.xlsx`);
 
-    console.log("PDF TEXT LENGTH:", pdfData.text.length);
-
-    // Parse packing list text
-    const { rows, errors } = parsePackingListText(pdfData.text);
+    const { rowCount, rowsFailedToParse, totals, items, parseErrors } =
+      await convertPackingListPdfToExcelAndJson(req.file.buffer, excelPath);
 
     return res.status(200).json({
       success: true,
       filename: req.file.originalname,
-      pages: pdfData.numpages,
-      rowCount: rows.length,
-      rowsFailedToParse: errors.length,
-      totals: summarize(rows),
-      items: rows,
-      parseErrors: errors,
+      rowCount,
+      rowsFailedToParse,
+      totals,
+      items,
+      parseErrors,
     });
   } catch (err) {
     console.error("UPLOAD PACKING LIST ERROR:", err);
-
     return res.status(500).json({
       success: false,
       message: err.message,
     });
+  } finally {
+    // Clean up the generated Excel file the same way the old code deleted the PDF
+    if (excelPath) {
+      fs.unlink(excelPath, () => {});
+    }
   }
 };
 
