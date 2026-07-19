@@ -88,6 +88,12 @@ function bucketForX(x) {
 async function extractTextRuns(pdfBuffer) {
   ensurePdfjsGlobals(); // <-- add this line, before the dynamic import below
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // pdfjs's Node "fake worker" needs pdf.worker.mjs's actual code, but it's
+  // loaded via a runtime-built path, so Vercel's build tracer misses it.
+  // require.resolve() with a literal string forces the tracer to bundle
+  // this file, and gives us the on-disk path to hand to workerSrc.
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
   const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) })
     .promise;
 
