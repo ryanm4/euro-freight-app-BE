@@ -51,7 +51,7 @@ function ensurePdfjsGlobals() {
   }
 }
 
-const PO_NUMBER_REGEX = /^W\d{5}-\d[A-Z]?(?:-\d[A-Z]?)?$/;
+const PO_NUMBER_REGEX = /^W\d{4,8}(-\d+[A-Z]?){1,2}$/;
 
 // Column bucket right-edges, derived from the midpoints between this
 // template's header x-positions (see header row inspection notes below).
