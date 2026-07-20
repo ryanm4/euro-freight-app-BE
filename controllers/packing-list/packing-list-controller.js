@@ -561,9 +561,9 @@ exports.getAllPackingLists = async (req, res) => {
         });
       }
 
-      if (r.po_number) {
+      if (r.poNumber) {
         map.get(r.packing_list_id).purchase_orders.push({
-          po_number: r.po_number,
+          po_number: r.poNumber,
           po_id: null,
           po_quantity: r.po_quantity,
         });
@@ -637,17 +637,24 @@ exports.getPackingListById = async (req, res) => {
       `
         SELECT 
           id AS item_id,
-          po_number,
+          poNumber AS po_number,
           sku,
-          item_description,
+          itemName AS item_name,
           size,
-          unit_cost,
+          unitCost,
           quantity,
-          ctn_count,
-          gross_weight_kg,
-          net_weight_kg,
-          carton_dimensions,
-          cbm
+          ctn,
+          grossWeightKg,
+          netWeightKg,
+          ctnDemi,
+          cbm,
+          ctnNo,
+          color,
+          co,
+          created_by,
+          created_at,
+          updated_by,
+          updated_on
         FROM freight_tracking_app.packing_list_items
         WHERE shipment_id = ?
         ORDER BY id ASC
