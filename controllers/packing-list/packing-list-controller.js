@@ -498,7 +498,7 @@ exports.getAllPackingLists = async (req, res) => {
           pl.updated_by,
           pl.updated_on,
 
-          po.po_number,
+          po.poNumber,
           po.po_quantity
 
       FROM freight_tracking_app.packing_list pl
@@ -512,10 +512,10 @@ exports.getAllPackingLists = async (req, res) => {
       LEFT JOIN (
           SELECT
               pli.shipment_id AS packing_list_id,
-              pli.po_number,
+              pli.poNumber,
               SUM(pli.quantity) AS po_quantity
           FROM freight_tracking_app.packing_list_items pli
-          GROUP BY pli.shipment_id, pli.po_number
+          GROUP BY pli.shipment_id, pli.poNumber
       ) po
           ON po.packing_list_id = pl.id
     `;

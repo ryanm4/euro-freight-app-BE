@@ -35,6 +35,8 @@ exports.createGDN = async (req, res) => {
       secondary_seal_no,
       custom_doc_status,
       wharf_staff_id,
+      driver_contact_no,
+      wharf_contact_no
     } = req.body;
 
     // 1. Insert GDN
@@ -63,10 +65,12 @@ exports.createGDN = async (req, res) => {
         primary_seal_no,
         secondary_seal_no,
         custom_doc_status,
-        wharf_staff_id
+        wharf_staff_id,
+        driver_contact_no,
+        wharf_contact_no
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(),
-              ?, ?, ?, ?, ?, ?, ?, ?)
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(insertQuery, [
@@ -94,6 +98,8 @@ exports.createGDN = async (req, res) => {
       secondary_seal_no,
       custom_doc_status,
       wharf_staff_id,
+      driver_contact_no,
+      wharf_contact_no
     ]);
 
     const gdnId = result.insertId;
