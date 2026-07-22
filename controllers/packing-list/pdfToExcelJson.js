@@ -8,23 +8,29 @@
  *
  * WHY THIS IS BETTER THAN THE OLD pdf-parse + regex APPROACH:
  * pdf-parse's getText() collapses the PDF into a single text stream and loses
- * column position entirely, which is why the old parser had to guess (e.g.
- * stripping a trailing "1" to separate Quantity from CTN, or fighting
- * page-break artifacts). Here we read each text run's actual (x, y)
- * position on the page — the number "115" and the number "1" next to it
- * are two separate text objects at two different x-coordinates, not a
- * glued "1151" string. That means Quantity and CTN are just "whichever
- * column each x-coordinate falls into," with no guessing required.
+ * column position entirely. Here we read each text run's actual (x, top)
+ * position on the page and bucket it into a column.
+ *
+ * COLUMN DETECTION: earlier versions of this file hardcoded pixel x-ranges
+ * for each column. That broke the moment a different packing-list export
+ * used a different page scale/margins (the PO Number column landed at a
+ * different absolute x on different files, even though the layout was
+ * otherwise identical). This version instead locates the header row on each
+ * PDF by matching known header labels, reads *their* x-positions, and
+ * builds column bucket edges as the midpoints between them. That makes
+ * column assignment self-calibrating per document instead of assuming a
+ * fixed coordinate grid.
  *
  * PIPELINE:
  *   1. pdfjs-dist reads every text run on every page with its (x, top) position.
- *   2. Runs are clustered into rows by y-position, then each run is dropped into
- *      a column bucket by x-position (bucket edges = midpoints between the
- *      known header x-positions on this document template).
- *   3. Rows that don't contain a valid PO Number (e.g. the header row, the
+ *   2. The header row is located (by matching known column labels) and used
+ *      to build this document's column bucket boundaries.
+ *   3. Runs are clustered into rows by y-position, then each run is dropped
+ *      into a column bucket by x-position using those boundaries.
+ *   4. Rows that don't contain a valid PO Number (e.g. the header row, the
  *      manufacturer/ship-to block, the TOTAL row) are discarded.
- *   4. Clean rows are written to a real .xlsx file with ExcelJS.
- *   5. The .xlsx is then re-opened and walked row-by-row to build the JSON
+ *   5. Clean rows are written to a real .xlsx file with ExcelJS.
+ *   6. The .xlsx is then re-opened and walked row-by-row to build the JSON
  *      that's returned — so the JSON is genuinely sourced from the Excel
  *      file, not straight from the PDF text.
  *
@@ -38,47 +44,48 @@
  *     ctn, grossWeightKg, netWeightKg, ctnDemi, cbm }
  */
 
-const fs = require("fs");
-const path = require("path");
-const ExcelJS = require("exceljs");
+const fs = require('fs');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const ExcelJS = require('exceljs');
 
+// PO numbers have varied across real Woxer exports seen so far:
+//   W22602-1A     (digit + trailing letter suffix)
+//   W22509-0-2    (two dash-separated suffix groups)
+//   W2251125-3    (7-digit body instead of 5)
+// This pattern covers all of those: W + 4-8 digit body + 1-2 dash groups,
+// each an optional-letter-suffixed number.
+const PO_NUMBER_REGEX = /^W\d{4,8}(-\d+[A-Z]?){1,2}$/;
+
+// Known header labels on this template, in column order, mapped to the
+// internal bucket key we want each column's values grouped under.
+const HEADER_LABELS = [
+  { label: 'CTN NO', key: 'lineNo' },
+  { label: 'PO Number', key: 'poNumber' },
+  { label: 'Sku', key: 'sku' },
+  { label: 'Item Name (Style)', key: 'itemName' },
+  { label: 'Color', key: 'color' },
+  { label: 'Size', key: 'size' },
+  { label: 'C.O.', key: 'co' },
+  { label: 'Unit Cost', key: 'unitCost' },
+  { label: 'Quantity', key: 'quantity' },
+  { label: 'CTN', key: 'ctn' },
+  { label: 'G.W. (KGS)', key: 'grossWeight' },
+  { label: 'N.W. (KGS)', key: 'netWeight' },
+  { label: 'CTN Demi', key: 'dimensions' },
+  { label: 'CBM', key: 'cbm' },
+];
+
+// pdfjs-dist (even the "legacy" Node build) references browser globals like
+// DOMMatrix at module-evaluation time. Node has no DOMMatrix, so we polyfill
+// it via @napi-rs/canvas *before* pdfjs-dist is imported anywhere.
 function ensurePdfjsGlobals() {
-  if (typeof globalThis.DOMMatrix === "undefined") {
-    const { DOMMatrix, ImageData, Path2D } = require("@napi-rs/canvas");
+  if (typeof globalThis.DOMMatrix === 'undefined') {
+    const { DOMMatrix, ImageData, Path2D } = require('@napi-rs/canvas');
     globalThis.DOMMatrix = DOMMatrix;
     globalThis.ImageData = ImageData;
     globalThis.Path2D = Path2D;
   }
-}
-
-const PO_NUMBER_REGEX = /^W\d{4,8}(-\d+[A-Z]?){1,2}$/;
-
-// Column bucket right-edges, derived from the midpoints between this
-// template's header x-positions (see header row inspection notes below).
-// A text run is assigned to the first bucket whose `max` is greater than
-// the run's x0. Order matters — narrowest/leftmost first.
-const COLUMN_BUCKETS = [
-  { key: "lineNo", max: 190 },
-  { key: "poNumber", max: 250 },
-  { key: "sku", max: 355 },
-  { key: "itemName", max: 462 },
-  { key: "color", max: 559 },
-  { key: "size", max: 629 },
-  { key: "co", max: 670 },
-  { key: "unitCost", max: 713 },
-  { key: "quantity", max: 758 },
-  { key: "ctn", max: 803 },
-  { key: "grossWeight", max: 854 },
-  { key: "netWeight", max: 910 },
-  { key: "dimensions", max: 991 },
-  { key: "cbm", max: Infinity },
-];
-
-function bucketForX(x) {
-  for (const bucket of COLUMN_BUCKETS) {
-    if (x < bucket.max) return bucket.key;
-  }
-  return COLUMN_BUCKETS[COLUMN_BUCKETS.length - 1].key;
 }
 
 /**
@@ -86,16 +93,18 @@ function bucketForX(x) {
  * page number and (x, top) position.
  */
 async function extractTextRuns(pdfBuffer) {
-  ensurePdfjsGlobals(); // <-- add this line, before the dynamic import below
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  ensurePdfjsGlobals();
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+
   // pdfjs's Node "fake worker" needs pdf.worker.mjs's actual code, but it's
-  // loaded via a runtime-built path, so Vercel's build tracer misses it.
-  // require.resolve() with a literal string forces the tracer to bundle
-  // this file, and gives us the on-disk path to hand to workerSrc.
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) })
-    .promise;
+  // loaded via a runtime-built path that Vercel's build tracer can miss.
+  // require.resolve() with a literal string forces the tracer to bundle it,
+  // and pathToFileURL() keeps the resulting path valid for Node's ESM
+  // loader on Windows too (raw "D:\..." paths are rejected there).
+  const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
 
   const runs = [];
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
@@ -118,10 +127,56 @@ async function extractTextRuns(pdfBuffer) {
 }
 
 /**
- * Groups text runs into visual rows (same page, y-position within tolerance),
- * then buckets each run into a column by x-position.
+ * Locates the header row (the row containing "PO Number") and builds
+ * column bucket boundaries from that row's own x-positions, so column
+ * assignment is calibrated per-document instead of assuming a fixed grid.
  */
-function groupRunsIntoRows(runs, yTolerance = 3) {
+function buildColumnBuckets(runs) {
+  const headerRun = runs.find(r => r.text === 'PO Number');
+  if (!headerRun) {
+    throw new Error(
+      'Could not locate the "PO Number" header on this PDF — the template ' +
+      'may differ from the expected Woxer packing list layout.'
+    );
+  }
+
+  const headerRuns = runs.filter(
+    r => r.page === headerRun.page && Math.abs(r.top - headerRun.top) < 3
+  );
+
+  const matched = [];
+  for (const hr of headerRuns) {
+    const known = HEADER_LABELS.find(h => h.label === hr.text);
+    if (known) matched.push({ key: known.key, x: hr.x });
+  }
+  matched.sort((a, b) => a.x - b.x);
+
+  if (matched.length < HEADER_LABELS.length) {
+    const foundKeys = new Set(matched.map(m => m.key));
+    const missing = HEADER_LABELS.filter(h => !foundKeys.has(h.key)).map(h => h.label);
+    throw new Error(`Could not find these expected columns on the header row: ${missing.join(', ')}`);
+  }
+
+  return matched.map((m, i) => {
+    const nextX = matched[i + 1] ? matched[i + 1].x : Infinity;
+    const max = nextX === Infinity ? Infinity : (m.x + nextX) / 2;
+    return { key: m.key, max };
+  });
+}
+
+function bucketForX(buckets, x) {
+  for (const bucket of buckets) {
+    if (x < bucket.max) return bucket.key;
+  }
+  return buckets[buckets.length - 1].key;
+}
+
+/**
+ * Groups text runs into visual rows (same page, y-position within tolerance),
+ * then buckets each run into a column by x-position using this document's
+ * own header-derived buckets.
+ */
+function groupRunsIntoRows(runs, buckets, yTolerance = 3) {
   const byPage = new Map();
   for (const run of runs) {
     if (!byPage.has(run.page)) byPage.set(run.page, []);
@@ -138,7 +193,7 @@ function groupRunsIntoRows(runs, yTolerance = 3) {
         currentRow = { page, top: run.top, cells: {} };
         rows.push(currentRow);
       }
-      const bucket = bucketForX(run.x);
+      const bucket = bucketForX(buckets, run.x);
       currentRow.cells[bucket] = currentRow.cells[bucket]
         ? `${currentRow.cells[bucket]} ${run.text}`
         : run.text;
@@ -156,30 +211,27 @@ function rowsToLineItems(rows) {
   const errors = [];
 
   for (const row of rows) {
-    const poNumber = (row.cells.poNumber || "").trim();
+    const poNumber = (row.cells.poNumber || '').trim();
     if (!PO_NUMBER_REGEX.test(poNumber)) continue; // header/footer/info rows
 
-    const quantity = parseInt(
-      (row.cells.quantity || "").replace(/[^\d]/g, ""),
-      10,
-    );
-    const ctnCount = parseInt((row.cells.ctn || "").replace(/[^\d]/g, ""), 10);
+    const quantity = parseInt((row.cells.quantity || '').replace(/[^\d]/g, ''), 10);
+    const ctnCount = parseInt((row.cells.ctn || '').replace(/[^\d]/g, ''), 10);
     const unitCost = parseFloat(row.cells.unitCost);
     const grossWeightKg = parseFloat(row.cells.grossWeight);
     const netWeightKg = parseFloat(row.cells.netWeight);
     const cbm = parseFloat(row.cells.cbm);
-    const sku = (row.cells.sku || "").trim();
-    const dimensions = (row.cells.dimensions || "").replace(/\s+/g, " ").trim();
-    const lineNoMatch = (row.cells.lineNo || "").match(/\d+/);
+    const sku = (row.cells.sku || '').trim();
+    const dimensions = (row.cells.dimensions || '').replace(/\s+/g, ' ').trim();
+    const lineNoMatch = (row.cells.lineNo || '').match(/\d+/);
 
     const item = {
       ctnNo: lineNoMatch ? parseInt(lineNoMatch[0], 10) : null,
       poNumber,
       sku,
-      itemName: (row.cells.itemName || "").replace(/\s+/g, " ").trim(),
-      color: (row.cells.color || "").replace(/\s+/g, " ").trim(),
-      size: (row.cells.size || "").trim(),
-      co: (row.cells.co || "").trim(),
+      itemName: (row.cells.itemName || '').replace(/\s+/g, ' ').trim(),
+      color: (row.cells.color || '').replace(/\s+/g, ' ').trim(),
+      size: (row.cells.size || '').trim(),
+      co: (row.cells.co || '').trim(),
       unitCost: Number.isFinite(unitCost) ? unitCost : 0,
       quantity,
       ctn: Number.isFinite(ctnCount) ? ctnCount : 1,
@@ -216,13 +268,7 @@ function summarize(items) {
       totalNetWeight: acc.totalNetWeight + (r.netWeightKg || 0),
       totalCbm: acc.totalCbm + (r.cbm || 0),
     }),
-    {
-      totalQuantity: 0,
-      totalCartons: 0,
-      totalGrossWeight: 0,
-      totalNetWeight: 0,
-      totalCbm: 0,
-    },
+    { totalQuantity: 0, totalCartons: 0, totalGrossWeight: 0, totalNetWeight: 0, totalCbm: 0 }
   );
 
   return {
@@ -235,26 +281,26 @@ function summarize(items) {
 }
 
 const EXCEL_COLUMNS = [
-  { header: "CTN NO", key: "ctnNo", width: 8 },
-  { header: "PO Number", key: "poNumber", width: 14 },
-  { header: "Sku", key: "sku", width: 16 },
-  { header: "Item Name (Style)", key: "itemName", width: 20 },
-  { header: "Color", key: "color", width: 18 },
-  { header: "Size", key: "size", width: 8 },
-  { header: "C.O.", key: "co", width: 6 },
-  { header: "Unit Cost", key: "unitCost", width: 10 },
-  { header: "Quantity", key: "quantity", width: 10 },
-  { header: "CTN", key: "ctn", width: 6 },
-  { header: "G.W. (KGS)", key: "grossWeightKg", width: 12 },
-  { header: "N.W. (KGS)", key: "netWeightKg", width: 12 },
-  { header: "CTN Demi", key: "ctnDemi", width: 20 },
-  { header: "CBM", key: "cbm", width: 10 },
+  { header: 'CTN NO', key: 'ctnNo', width: 8 },
+  { header: 'PO Number', key: 'poNumber', width: 14 },
+  { header: 'Sku', key: 'sku', width: 16 },
+  { header: 'Item Name (Style)', key: 'itemName', width: 20 },
+  { header: 'Color', key: 'color', width: 18 },
+  { header: 'Size', key: 'size', width: 8 },
+  { header: 'C.O.', key: 'co', width: 6 },
+  { header: 'Unit Cost', key: 'unitCost', width: 10 },
+  { header: 'Quantity', key: 'quantity', width: 10 },
+  { header: 'CTN', key: 'ctn', width: 6 },
+  { header: 'G.W. (KGS)', key: 'grossWeightKg', width: 12 },
+  { header: 'N.W. (KGS)', key: 'netWeightKg', width: 12 },
+  { header: 'CTN Demi', key: 'ctnDemi', width: 20 },
+  { header: 'CBM', key: 'cbm', width: 10 },
 ];
 
 /** Step A: write parsed line items to a real .xlsx file. */
 async function writeExcel(items, excelPath) {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Packing List");
+  const sheet = workbook.addWorksheet('Packing List');
   sheet.columns = EXCEL_COLUMNS;
   sheet.getRow(1).font = { bold: true };
   for (const item of items) sheet.addRow(item);
@@ -268,16 +314,14 @@ async function readExcelToJson(excelPath) {
   await workbook.xlsx.readFile(excelPath);
   const sheet = workbook.worksheets[0];
 
-  const keys = EXCEL_COLUMNS.map((c) => c.key);
+  const keys = EXCEL_COLUMNS.map(c => c.key);
   const items = [];
 
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
     const values = row.values.slice(1); // exceljs row.values is 1-indexed
     const obj = {};
-    keys.forEach((key, i) => {
-      obj[key] = values[i] !== undefined ? values[i] : null;
-    });
+    keys.forEach((key, i) => { obj[key] = values[i] !== undefined ? values[i] : null; });
     items.push(obj);
   });
 
@@ -290,7 +334,8 @@ async function readExcelToJson(excelPath) {
  */
 async function convertPackingListPdfToExcelAndJson(pdfBuffer, excelPath) {
   const runs = await extractTextRuns(pdfBuffer);
-  const rows = groupRunsIntoRows(runs);
+  const buckets = buildColumnBuckets(runs);
+  const rows = groupRunsIntoRows(runs, buckets);
   const { items, errors } = rowsToLineItems(rows);
 
   await writeExcel(items, excelPath);
@@ -309,6 +354,7 @@ async function convertPackingListPdfToExcelAndJson(pdfBuffer, excelPath) {
 module.exports = {
   convertPackingListPdfToExcelAndJson,
   extractTextRuns,
+  buildColumnBuckets,
   groupRunsIntoRows,
   rowsToLineItems,
   summarize,
