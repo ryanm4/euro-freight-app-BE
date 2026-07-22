@@ -36,7 +36,10 @@ exports.createGDN = async (req, res) => {
       custom_doc_status,
       wharf_staff_id,
       driver_contact_no,
-      wharf_contact_no
+      wharf_contact_no,
+      length_cm,
+      width_cm,
+      height_cm,
     } = req.body;
 
     // 1. Insert GDN
@@ -67,10 +70,13 @@ exports.createGDN = async (req, res) => {
         custom_doc_status,
         wharf_staff_id,
         driver_contact_no,
-        wharf_contact_no
+        wharf_contact_no,
+        length_cm,
+        width_cm,
+        height_cm
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(),
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(insertQuery, [
@@ -99,7 +105,10 @@ exports.createGDN = async (req, res) => {
       custom_doc_status,
       wharf_staff_id,
       driver_contact_no,
-      wharf_contact_no
+      wharf_contact_no,
+      length_cm,
+      width_cm,
+      height_cm,
     ]);
 
     const gdnId = result.insertId;
@@ -213,6 +222,11 @@ exports.updateGDN = async (req, res) => {
       secondary_seal_no,
       custom_doc_status,
       wharf_staff_id,
+      driver_contact_no,
+      wharf_contact_no,
+      length_cm,
+      width_cm,
+      height_cm,
     } = req.body || {};
 
     const [existing] = await connection.query(
@@ -257,6 +271,11 @@ exports.updateGDN = async (req, res) => {
         secondary_seal_no = ?,
         custom_doc_status = ?,
         wharf_staff_id = ?,
+        length_cm = ?,
+        width_cm = ?,
+        height_cm = ?,
+        driver_contact_no = ?,
+        wharf_contact_no = ?,
 
         updated_by = ?,
         updated_on = NOW()
@@ -288,7 +307,11 @@ exports.updateGDN = async (req, res) => {
       secondary_seal_no,
       custom_doc_status,
       wharf_staff_id,
-
+      length_cm,
+      width_cm,
+      height_cm,
+      driver_contact_no,
+      wharf_contact_no,
       updated_by,
       gdnId,
     ]);
@@ -380,6 +403,11 @@ exports.getAllGDN = async (req, res) => {
         g.primary_seal_no,
         g.secondary_seal_no,
         g.custom_doc_status,
+        g.length_cm,
+        g.width_cm,
+        g.height_cm,
+        g.driver_contact_no,
+        g.wharf_contact_no,
 
         g.created_by,
         g.created_on,
@@ -492,6 +520,11 @@ exports.getGDNById = async (req, res) => {
         g.primary_seal_no,
         g.secondary_seal_no,
         g.custom_doc_status,
+        g.length_cm,
+        g.width_cm,
+        g.height_cm,
+        g.driver_contact_no,
+        g.wharf_contact_no,
 
         g.created_by,
         g.created_on,
