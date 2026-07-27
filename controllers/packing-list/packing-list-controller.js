@@ -58,7 +58,12 @@ exports.createPackingList = async (req, res) => {
       if (!r.poNumber) badFields.push("poNumber");
       if (!r.itemName) badFields.push("itemName");
       if (badFields.length > 0) {
-        invalidItems.push({ index, poNumber: r.poNumber, sku: r.sku, badFields });
+        invalidItems.push({
+          index,
+          poNumber: r.poNumber,
+          sku: r.sku,
+          badFields,
+        });
       }
     });
 
@@ -127,7 +132,13 @@ exports.createPackingList = async (req, res) => {
         totalNetWeight: acc.totalNetWeight + toNumber(r.netWeightKg, 0),
         totalCbm: acc.totalCbm + toNumber(r.cbm, 0),
       }),
-      { totalQuantity: 0, totalCartons: 0, totalGrossWeight: 0, totalNetWeight: 0, totalCbm: 0 },
+      {
+        totalQuantity: 0,
+        totalCartons: 0,
+        totalGrossWeight: 0,
+        totalNetWeight: 0,
+        totalCbm: 0,
+      },
     );
     totals.totalGrossWeight = +totals.totalGrossWeight.toFixed(3);
     totals.totalNetWeight = +totals.totalNetWeight.toFixed(3);
@@ -182,7 +193,7 @@ exports.createPackingList = async (req, res) => {
     // 1b. Generate packing_list_no now that we have the id: YYYYMMDD/shipping_mode/id
     const datePart = formatDateYYYYMMDD(date);
     const modePart = shipping_mode || "NA";
-    const packingListNo = `${datePart}/${modePart}/${packingListId}`;
+    const packingListNo = `PL-${datePart}/${modePart}/${packingListId}`;
 
     await connection.query(
       `
@@ -275,6 +286,11 @@ exports.createPackingList = async (req, res) => {
 exports.updatePackingList = async (req, res) => {
   const connection = await db.getConnection();
 
+  const toNumber = (value, fallback = null) => {
+    const n = typeof value === "number" ? value : parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
   try {
     await connection.beginTransaction();
 
@@ -292,7 +308,7 @@ exports.updatePackingList = async (req, res) => {
       shipping_mode,
       status,
       updated_by,
-      items, // parsed packing list line items, sent directly as JSON
+      items,
     } = req.body;
 
     if (!items || items.length === 0) {
@@ -303,7 +319,6 @@ exports.updatePackingList = async (req, res) => {
       });
     }
 
-    // Check if packing list exists
     const [existing] = await connection.query(
       `SELECT * FROM freight_tracking_app.packing_list WHERE id = ?`,
       [id],
@@ -317,57 +332,104 @@ exports.updatePackingList = async (req, res) => {
       });
     }
 
-    // po_detail_ids is no longer sent by the client — derive the unique set
-    // of PO numbers straight from the submitted items instead.
+    // Same up-front validation as createPackingList
+    const invalidItems = [];
+    items.forEach((r, index) => {
+      const badFields = [];
+      if (toNumber(r.quantity) === null) badFields.push("quantity");
+      if (toNumber(r.grossWeightKg) === null) badFields.push("grossWeightKg");
+      if (toNumber(r.netWeightKg) === null) badFields.push("netWeightKg");
+      if (toNumber(r.cbm) === null) badFields.push("cbm");
+      if (!r.poNumber) badFields.push("poNumber");
+      if (!r.itemName) badFields.push("itemName");
+      if (badFields.length > 0) {
+        invalidItems.push({
+          index,
+          poNumber: r.poNumber,
+          sku: r.sku,
+          badFields,
+        });
+      }
+    });
+
+    if (invalidItems.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Some items have missing or invalid numeric fields",
+        invalidItems,
+      });
+    }
+
     const poNumbers = [
       ...new Set(items.map((i) => i.poNumber).filter(Boolean)),
     ];
 
-    const totals = summarize(items);
+    // Totals computed inline with toNumber guards — no summarize() helper
+    const totals = items.reduce(
+      (acc, r) => ({
+        totalQuantity: acc.totalQuantity + toNumber(r.quantity, 0),
+        totalCartons: acc.totalCartons + toNumber(r.ctn, 1),
+        totalGrossWeight: acc.totalGrossWeight + toNumber(r.grossWeightKg, 0),
+        totalNetWeight: acc.totalNetWeight + toNumber(r.netWeightKg, 0),
+        totalCbm: acc.totalCbm + toNumber(r.cbm, 0),
+      }),
+      {
+        totalQuantity: 0,
+        totalCartons: 0,
+        totalGrossWeight: 0,
+        totalNetWeight: 0,
+        totalCbm: 0,
+      },
+    );
+    totals.totalGrossWeight = +totals.totalGrossWeight.toFixed(3);
+    totals.totalNetWeight = +totals.totalNetWeight.toFixed(3);
+    totals.totalCbm = +totals.totalCbm.toFixed(3);
 
     // 1. Update packing list header (DO NOT TOUCH created_by / created_on)
-    const updatePackingListQuery = `
-      UPDATE freight_tracking_app.packing_list
-      SET
-        client_id = ?,
-        manufacturer_id = ?,
-        date = ?,
-        gdn_id = ?,
-        grn_id = ?,
-        total_quantity = ?,
-        ship_to = ?,
-        document_date = ?,
-        total_cartons = ?,
-        total_gross_weight_kg = ?,
-        total_net_weight_kg = ?,
-        total_cbm = ?,
-        total_volume = ?,
-        shipping_mode = ?,
-        status = ?,
-        updated_by = ?,
-        updated_on = NOW()
-      WHERE id = ?
-    `;
-
-    await connection.query(updatePackingListQuery, [
-      client_id,
-      manufacturer_id || null,
-      date,
-      gdn_id || null,
-      grn_id || null,
-      totals.totalQuantity,
-      ship_to || null,
-      document_date || null,
-      totals.totalCartons,
-      totals.totalGrossWeight,
-      totals.totalNetWeight,
-      totals.totalCbm,
-      total_volume || null,
-      shipping_mode || null,
-      status || null,
-      updated_by,
-      id,
-    ]);
+    await connection.query(
+      `
+        UPDATE freight_tracking_app.packing_list
+        SET
+          client_id = ?,
+          manufacturer_id = ?,
+          date = ?,
+          gdn_id = ?,
+          grn_id = ?,
+          total_quantity = ?,
+          ship_to = ?,
+          document_date = ?,
+          total_cartons = ?,
+          total_gross_weight_kg = ?,
+          total_net_weight_kg = ?,
+          total_cbm = ?,
+          total_volume = ?,
+          shipping_mode = ?,
+          status = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id = ?
+      `,
+      [
+        client_id,
+        manufacturer_id || null,
+        date,
+        gdn_id || null,
+        grn_id || null,
+        totals.totalQuantity,
+        ship_to || null,
+        document_date || null,
+        totals.totalCartons,
+        totals.totalGrossWeight,
+        totals.totalNetWeight,
+        totals.totalCbm,
+        total_volume || null,
+        shipping_mode || null,
+        status || null,
+        updated_by,
+        id,
+      ],
+    );
 
     // 2. Replace line items: wipe old rows for this packing list, insert the new set
     await connection.query(
@@ -375,39 +437,39 @@ exports.updatePackingList = async (req, res) => {
       [id],
     );
 
+    // Column set now matches createPackingList / the pdfjs parsing schema
     const itemValues = items.map((r) => [
       id,
       r.poNumber,
       r.sku,
-      r.itemDescription,
+      r.itemName,
+      r.color || null,
       r.size,
-      r.unitCost,
-      r.quantity,
-      r.ctnCount,
-      r.grossWeightKg,
-      r.netWeightKg,
-      r.cartonDimensions,
-      r.cbm,
+      r.co || null,
+      toNumber(r.unitCost, 0),
+      toNumber(r.quantity, 0),
+      toNumber(r.ctn, 1),
+      toNumber(r.grossWeightKg, 0),
+      toNumber(r.netWeightKg, 0),
+      r.ctnDemi || null,
+      toNumber(r.cbm, 0),
+      r.ctnNo != null ? String(r.ctnNo) : null,
+      updated_by || null,
     ]);
 
     await connection.query(
       `
         INSERT INTO freight_tracking_app.packing_list_items
-          (shipment_id, po_number, sku, item_description, size, unit_cost,
-           quantity, ctn_count, gross_weight_kg, net_weight_kg, carton_dimensions, cbm)
+          (shipment_id, poNumber, sku, itemName, color, size, co, unitCost,
+           quantity, ctn, grossWeightKg, netWeightKg, ctnDemi, cbm, ctnNo, created_by)
         VALUES ?
       `,
       [itemValues],
     );
 
-    // 3. Re-link purchase_order rows by po_number (best-effort, see note below).
-    // The PO numbers on a re-uploaded packing list may not exist in
-    // purchase_order yet, so any failure here (missing table/column, no
-    // matching rows, query error) is swallowed and simply skipped rather
-    // than blocking the update.
+    // 3. Re-link purchase_order rows by po_number (best-effort)
     let purchaseOrdersLinked = 0;
     try {
-      // Remove old PO assignments linked to this packing list
       await connection.query(
         `
           UPDATE freight_tracking_app.purchase_order
@@ -420,7 +482,6 @@ exports.updatePackingList = async (req, res) => {
         [updated_by, id],
       );
 
-      // Assign new PO details
       if (poNumbers.length > 0) {
         const [updateResult] = await connection.query(
           `
@@ -452,11 +513,9 @@ exports.updatePackingList = async (req, res) => {
       poNumbers,
       purchaseOrdersLinked,
       totals,
-      // items,
     });
   } catch (error) {
     await connection.rollback();
-
     console.error(error);
 
     res.status(500).json({
@@ -483,6 +542,7 @@ exports.getAllPackingLists = async (req, res) => {
           pl.date,
           pl.gdn_id,
           pl.grn_id,
+          gdn.gdn_no,
           pl.ship_to,
           pl.document_date,
           pl.total_quantity,
@@ -508,6 +568,9 @@ exports.getAllPackingLists = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.clients m
           ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+
+      LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
+          ON gdn.id = pl.gdn_id
 
       LEFT JOIN (
           SELECT
@@ -541,6 +604,7 @@ exports.getAllPackingLists = async (req, res) => {
           client_name: r.client_name,
           manufacturer_name: r.manufacturer_name,
           gdn_id: r.gdn_id,
+          gdn_no: r.gdn_no,
           grn_id: r.grn_id,
           ship_to: r.ship_to,
           date: r.date,
@@ -595,6 +659,7 @@ exports.getPackingListById = async (req, res) => {
         m.name AS manufacturer_name,
         pl.date,
         pl.gdn_id,
+        gdn.gdn_no,
         pl.grn_id,
         pl.ship_to,
         pl.document_date,
@@ -618,6 +683,9 @@ exports.getPackingListById = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.clients m
           ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+
+      LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
+          ON gdn.id = pl.gdn_id
 
       WHERE pl.id = ?
     `,
@@ -726,6 +794,7 @@ exports.getPackingListById = async (req, res) => {
       client_name: rows[0].client_name,
       manufacturer_name: rows[0].manufacturer_name,
       gdn_id: rows[0].gdn_id,
+      gdn_no: rows[0].gdn_no,
       grn_id: rows[0].grn_id,
       ship_to: rows[0].ship_to,
       date: rows[0].date,
