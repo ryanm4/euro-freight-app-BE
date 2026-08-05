@@ -217,7 +217,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         // Get selected packing lists
         const [packingLists] = await connection.query(
             `
-      SELECT id, quantity, grn_id
+      SELECT id, total_quantity, grn_id
       FROM freight_tracking_app.packing_list
       WHERE id IN (?)
       `,
@@ -248,7 +248,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
 
         // Validate quantity match
         const totalPackingQty = packingLists.reduce((sum, item) => {
-            return sum + (Number(item.quantity) || 0);
+            return sum + (Number(item.total_quantity) || 0);
         }, 0);
 
         if (quantityNum !== totalPackingQty) {
@@ -384,7 +384,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
           date,
           gdn_id,
           grn_id,
-          quantity,
+          total_quantity,
           created_by,
           created_on,
           updated_by,
@@ -474,7 +474,7 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
         date,
         gdn_id,
         grn_id,
-        quantity,
+        total_quantity,
         created_by,
         created_on,
         updated_by,
