@@ -38,9 +38,12 @@ exports.createGoodsReceiveNote = async (req, res) => {
         // Fetch packing lists
         const [packingLists] = await connection.query(
             `
-      SELECT id, quantity, grn_id
-      FROM freight_tracking_app.packing_list
-      WHERE id IN (?)
+                SELECT
+                    id,
+                    total_quantity,
+                    grn_id
+                FROM freight_tracking_app.packing_list
+                WHERE id IN (?)
       `,
             [packing_list_ids]
         );
@@ -68,7 +71,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
 
         // Calculate total quantity
         const totalPackingQty = packingLists.reduce((sum, item) => {
-            return sum + (Number(item.quantity) || 0);
+            return sum + (Number(item.total_quantity) || 0);
         }, 0);
 
         // STRICT EQUALITY CHECK
