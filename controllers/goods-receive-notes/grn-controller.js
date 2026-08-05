@@ -342,57 +342,87 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
     const connection = await db.getConnection();
 
     try {
-        const [grns] = await connection.query(`
-      SELECT 
-        grn.id,
+        const { shipping_mode } = req.query;
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
-        forwarder.name AS forwarder_id,
+        let query = `
+            SELECT DISTINCT
+                grn.id,
 
-        grn.date,
-        grn.quantity,
-        grn.status,
-        grn.bill_id,
-        grn.comments,
-        grn.created_by,
-        grn.created_on,
-        grn.updated_by,
-        grn.updated_on
+                client.name AS client_id,
+                manufacture.name AS manufacture_id,
+                forwarder.name AS forwarder_id,
 
-      FROM freight_tracking_app.goods_receive_notes grn
+                grn.date,
+                grn.quantity,
+                grn.status,
+                grn.bill_id,
+                grn.comments,
+                grn.created_by,
+                grn.created_on,
+                grn.updated_by,
+                grn.updated_on
 
-      LEFT JOIN freight_tracking_app.clients client
-        ON grn.client_id = client.id
+            FROM freight_tracking_app.goods_receive_notes grn
 
-      LEFT JOIN freight_tracking_app.clients manufacture
-        ON grn.manufacture_id = manufacture.id
+            LEFT JOIN freight_tracking_app.clients client
+                ON grn.client_id = client.id
 
-      LEFT JOIN freight_tracking_app.clients forwarder
-        ON grn.forwarder_id = forwarder.id
+            LEFT JOIN freight_tracking_app.clients manufacture
+                ON grn.manufacture_id = manufacture.id
 
-      ORDER BY grn.id DESC
-    `);
+            LEFT JOIN freight_tracking_app.clients forwarder
+                ON grn.forwarder_id = forwarder.id
+        `;
 
-        // Attach packing lists for each GRN
-        for (let grn of grns) {
+        const params = [];
+
+        if (shipping_mode) {
+            query += `
+                INNER JOIN freight_tracking_app.packing_list pl
+                    ON pl.grn_id = grn.id
+                WHERE pl.shipping_mode = ?
+            `;
+            params.push(shipping_mode);
+        }
+
+        query += ` ORDER BY grn.id DESC`;
+
+        const [grns] = await connection.query(query, params);
+
+        // Attach packing lists
+        for (const grn of grns) {
+            let packingListQuery = `
+                SELECT
+                    id,
+                    packing_list_no,
+                    client_id,
+                    manufacturer_id,
+                    date,
+                    gdn_id,
+                    grn_id,
+                    total_quantity,
+                    ship_to,
+                    shipping_mode,
+                    status,
+                    created_by,
+                    created_on,
+                    updated_by,
+                    updated_on
+                FROM freight_tracking_app.packing_list
+                WHERE grn_id = ?
+            `;
+
+            const packingParams = [grn.id];
+
+            // Optional: only include packing lists matching the requested shipping mode
+            if (shipping_mode) {
+                packingListQuery += ` AND shipping_mode = ?`;
+                packingParams.push(shipping_mode);
+            }
+
             const [packingLists] = await connection.query(
-                `
-        SELECT 
-          id,
-          client_id,
-          date,
-          gdn_id,
-          grn_id,
-          total_quantity,
-          created_by,
-          created_on,
-          updated_by,
-          updated_on
-        FROM freight_tracking_app.packing_list
-        WHERE grn_id = ?
-        `,
-                [grn.id]
+                packingListQuery,
+                packingParams
             );
 
             grn.packing_lists = packingLists;
