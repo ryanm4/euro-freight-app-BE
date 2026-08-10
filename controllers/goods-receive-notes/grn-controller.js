@@ -356,7 +356,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
-    const { shipping_mode } = req.query;
+    const { shipping_mode, status } = req.query;
 
     let query = `
             SELECT
@@ -411,7 +411,9 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
         `;
 
     const params = [];
+    const conditions = [];
 
+    // Filter by shipping mode
     if (shipping_mode) {
       query += `
                 INNER JOIN freight_tracking_app.packing_list pl
@@ -420,6 +422,17 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
             `;
 
       params.push(shipping_mode);
+    }
+
+    // Filter by GRN status
+    if (status) {
+      conditions.push(`grn.status = ?`);
+      params.push(status);
+    }
+
+    // Add WHERE conditions
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
     }
 
     query += `
@@ -471,6 +484,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
       const packingParams = [grn.id];
 
+      // Filter packing lists by shipping mode
       if (shipping_mode) {
         packingListQuery += `
                     AND shipping_mode = ?
