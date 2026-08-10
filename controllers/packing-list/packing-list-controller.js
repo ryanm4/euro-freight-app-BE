@@ -26,6 +26,7 @@ exports.createPackingList = async (req, res) => {
     const {
       client_id,
       manufacturer_id,
+      forwarder_id,
       date,
       gdn_id,
       grn_id,
@@ -150,6 +151,7 @@ exports.createPackingList = async (req, res) => {
       (
         client_id,
         manufacturer_id,
+        forwarder_id,
         date,
         gdn_id,
         grn_id,
@@ -166,12 +168,13 @@ exports.createPackingList = async (req, res) => {
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
       client_id,
       manufacturer_id || null,
+      forwarder_id || null,
       date,
       gdn_id || null,
       grn_id || null,
@@ -299,6 +302,7 @@ exports.updatePackingList = async (req, res) => {
     const {
       client_id,
       manufacturer_id,
+      forwarder_id,
       date,
       gdn_id,
       grn_id,
@@ -393,6 +397,7 @@ exports.updatePackingList = async (req, res) => {
         SET
           client_id = ?,
           manufacturer_id = ?,
+          forwarder_id = ?,
           date = ?,
           gdn_id = ?,
           grn_id = ?,
@@ -413,6 +418,7 @@ exports.updatePackingList = async (req, res) => {
       [
         client_id,
         manufacturer_id || null,
+        forwarder_id || null,
         date,
         gdn_id || null,
         grn_id || null,
@@ -539,6 +545,7 @@ exports.getAllPackingLists = async (req, res) => {
           pl.packing_list_no,
           c.name AS client_name,
           m.name AS manufacturer_name,
+          f.name AS forwarder_name,
           pl.date,
           pl.gdn_id,
           pl.grn_id,
@@ -568,6 +575,9 @@ exports.getAllPackingLists = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.clients m
           ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+
+      LEFT JOIN freight_tracking_app.clients f
+          ON f.id = CAST(pl.forwarder_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
           ON gdn.id = pl.gdn_id
@@ -603,6 +613,7 @@ exports.getAllPackingLists = async (req, res) => {
           packing_list_no: r.packing_list_no,
           client_name: r.client_name,
           manufacturer_name: r.manufacturer_name,
+          forwarder_name: r.forwarder_name,
           gdn_id: r.gdn_id,
           gdn_no: r.gdn_no,
           grn_id: r.grn_id,
@@ -657,6 +668,7 @@ exports.getPackingListById = async (req, res) => {
         pl.packing_list_no,
         c.name AS client_name,
         m.name AS manufacturer_name,
+        f.name AS forwarder_name,
         pl.date,
         pl.gdn_id,
         gdn.gdn_no,
@@ -683,6 +695,9 @@ exports.getPackingListById = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.clients m
           ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+
+      LEFT JOIN freight_tracking_app.clients f
+          ON f.id = CAST(pl.forwarder_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
           ON gdn.id = pl.gdn_id
@@ -793,6 +808,7 @@ exports.getPackingListById = async (req, res) => {
       packing_list_no: rows[0].packing_list_no,
       client_name: rows[0].client_name,
       manufacturer_name: rows[0].manufacturer_name,
+      forwarder_name: rows[0].forwarder_name,
       gdn_id: rows[0].gdn_id,
       gdn_no: rows[0].gdn_no,
       grn_id: rows[0].grn_id,
