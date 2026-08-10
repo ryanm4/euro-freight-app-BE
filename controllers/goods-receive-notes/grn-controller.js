@@ -10,6 +10,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
             client_id,
             manufacture_id,
             forwarder_id,
+            recipient_id,
             date,
             quantity,
             status,
@@ -94,6 +95,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
         client_id,
         manufacture_id,
         forwarder_id,
+        recipient_id,
         date,
         quantity,
         status,
@@ -101,12 +103,13 @@ exports.createGoodsReceiveNote = async (req, res) => {
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
             [
                 client_id,
                 manufacture_id,
                 forwarder_id,
+                recipient_id,
                 date,
                 quantityNum,
                 status,
@@ -169,6 +172,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
             client_id,
             manufacture_id,
             forwarder_id,
+            recipient_id,
             date,
             quantity,
             status,
@@ -280,6 +284,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         client_id = ?,
         manufacture_id = ?,
         forwarder_id = ?,
+        recipient_id = ?,
         date = ?,
         quantity = ?,
         status = ?,
@@ -292,6 +297,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
                 client_id,
                 manufacture_id,
                 forwarder_id,
+                recipient_id,
                 date,
                 quantityNum,
                 status,
@@ -348,9 +354,17 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
             SELECT DISTINCT
                 grn.id,
 
+                -- GDN details
+                gdn.id AS gdn_id,
+                gdn.gdn_no,
+
                 client.name AS client_id,
                 manufacture.name AS manufacture_id,
                 forwarder.name AS forwarder_id,
+
+                -- Recipient details from freight_staff
+                recipient.name AS recipient_name,
+                recipient.contact_no AS recipient_contact_no,
 
                 grn.date,
                 grn.quantity,
@@ -364,6 +378,9 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
             FROM freight_tracking_app.goods_receive_notes grn
 
+            LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
+                ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
+
             LEFT JOIN freight_tracking_app.clients client
                 ON grn.client_id = client.id
 
@@ -372,6 +389,9 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
             LEFT JOIN freight_tracking_app.clients forwarder
                 ON grn.forwarder_id = forwarder.id
+
+            LEFT JOIN freight_tracking_app.freight_staff recipient
+                ON grn.recipient_id = recipient.id
         `;
 
         const params = [];
@@ -382,6 +402,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
                     ON pl.grn_id = grn.id
                 WHERE pl.shipping_mode = ?
             `;
+
             params.push(shipping_mode);
         }
 
@@ -414,7 +435,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
             const packingParams = [grn.id];
 
-            // Optional: only include packing lists matching the requested shipping mode
+            // Only include packing lists matching shipping mode
             if (shipping_mode) {
                 packingListQuery += ` AND shipping_mode = ?`;
                 packingParams.push(shipping_mode);
@@ -454,36 +475,43 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
         const [grnResult] = await connection.query(
             `
-      SELECT 
-        grn.id,
+            SELECT 
+                grn.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
-        forwarder.name AS forwarder_id,
+                client.name AS client_id,
+                manufacture.name AS manufacture_id,
+                forwarder.name AS forwarder_id,
 
-        grn.date,
-        grn.quantity,
-        grn.status,
-        grn.bill_id,
-        grn.comments,
-        grn.created_by,
-        grn.created_on,
-        grn.updated_by,
-        grn.updated_on
+                -- Recipient details from freight_staff
+                recipient.name AS recipient_name,
+                recipient.contact_no AS recipient_contact_no,
 
-      FROM freight_tracking_app.goods_receive_notes grn
+                grn.date,
+                grn.quantity,
+                grn.status,
+                grn.bill_id,
+                grn.comments,
+                grn.created_by,
+                grn.created_on,
+                grn.updated_by,
+                grn.updated_on
 
-      LEFT JOIN freight_tracking_app.clients client
-        ON grn.client_id = client.id
+            FROM freight_tracking_app.goods_receive_notes grn
 
-      LEFT JOIN freight_tracking_app.clients manufacture
-        ON grn.manufacture_id = manufacture.id
+            LEFT JOIN freight_tracking_app.clients client
+                ON grn.client_id = client.id
 
-      LEFT JOIN freight_tracking_app.clients forwarder
-        ON grn.forwarder_id = forwarder.id
+            LEFT JOIN freight_tracking_app.clients manufacture
+                ON grn.manufacture_id = manufacture.id
 
-      WHERE grn.id = ?
-      `,
+            LEFT JOIN freight_tracking_app.clients forwarder
+                ON grn.forwarder_id = forwarder.id
+
+            LEFT JOIN freight_tracking_app.freight_staff recipient
+                ON grn.recipient_id = recipient.id
+
+            WHERE grn.id = ?
+            `,
             [grnId]
         );
 
@@ -498,20 +526,25 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
         const [packingLists] = await connection.query(
             `
-      SELECT 
-        id,
-        client_id,
-        date,
-        gdn_id,
-        grn_id,
-        total_quantity,
-        created_by,
-        created_on,
-        updated_by,
-        updated_on
-      FROM freight_tracking_app.packing_list
-      WHERE grn_id = ?
-      `,
+            SELECT 
+                id,
+                packing_list_no,
+                client_id,
+                manufacturer_id,
+                date,
+                gdn_id,
+                grn_id,
+                total_quantity,
+                ship_to,
+                shipping_mode,
+                status,
+                created_by,
+                created_on,
+                updated_by,
+                updated_on
+            FROM freight_tracking_app.packing_list
+            WHERE grn_id = ?
+            `,
             [grnId]
         );
 

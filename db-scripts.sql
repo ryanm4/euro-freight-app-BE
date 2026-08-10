@@ -192,7 +192,7 @@ CREATE TABLE
         `actual_cartoons` VARCHAR(45) NULL,
         `gross_weight` VARCHAR(45) NULL,
         `actual_gross_weight` VARCHAR(45) NULL,
-        `gross_volume` DECIMAL(10,3) NULL,
+        `gross_volume` DECIMAL(10, 3) NULL,
         `actual_gross_volume` VARCHAR(45) NULL,
         `status` VARCHAR(45) NULL,
         `gdn_grn_ref` VARCHAR(45) NULL,
@@ -224,6 +224,7 @@ CREATE TABLE
         `client_id` INT NULL,
         `manufacture_id` INT NULL,
         `forwarder_id` INT NULL,
+        `recipient_id` INT NULL,
         `date` DATETIME NULL,
         `quantity` INT NULL,
         `bill_id` INT NULL,
@@ -322,6 +323,14 @@ CREATE TABLE
 
 CREATE TABLE
     `freight_tracking_app`.`wharf_staff` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `name` VARCHAR(45) NULL,
+        `contact_no` VARCHAR(45) NULL,
+        PRIMARY KEY (`id`)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`freight_staff` (
         `id` INT NOT NULL AUTO_INCREMENT,
         `name` VARCHAR(45) NULL,
         `contact_no` VARCHAR(45) NULL,
