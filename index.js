@@ -14,6 +14,7 @@ const shipmentRoutes = require('./routes/shipment/shipment-routes');
 const authRoutes = require('./routes/auth/auth-route');
 const driverRoutes = require('./routes/drivers/driver-route');
 const wharfRoutes = require('./routes/wharf/wharf-route');
+const freightStaffRoutes = require('./routes/freight-staff/freight-staff-route');
 
 dotenv.config({ path: './config.env' });
 const port = process.env.PORT || 8000;
@@ -48,3 +49,4 @@ app.use('/api/v1/shipments', shipmentRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/drivers', driverRoutes);
 app.use('/api/v1/wharf', wharfRoutes);
+app.use('/api/v1/freight_staff', freightStaffRoutes);
