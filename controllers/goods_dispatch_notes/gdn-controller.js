@@ -26,7 +26,7 @@ exports.createGDN = async (req, res) => {
       vehicle_no,
       driver_id,
 
-      // New fields
+      // GDN fields
       dispatch_location,
       transport_mode,
       container_no,
@@ -37,12 +37,26 @@ exports.createGDN = async (req, res) => {
       wharf_staff_id,
       driver_contact_no,
       wharf_contact_no,
-      length_cm,
-      width_cm,
-      height_cm,
+
+      // Multiple measurements
+      measurements,
     } = req.body;
 
-    // 1. Insert GDN
+    // ---------------------------------------------------------
+    // 1. Validate measurements
+    // ---------------------------------------------------------
+    if (measurements !== undefined && !Array.isArray(measurements)) {
+      await connection.rollback();
+
+      return res.status(400).json({
+        success: false,
+        message: "measurements must be an array",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // 2. Insert GDN
+    // ---------------------------------------------------------
     const insertQuery = `
       INSERT INTO freight_tracking_app.goods_deliver_notes (
         client_id,
@@ -70,13 +84,10 @@ exports.createGDN = async (req, res) => {
         custom_doc_status,
         wharf_staff_id,
         driver_contact_no,
-        wharf_contact_no,
-        length_cm,
-        width_cm,
-        height_cm
+        wharf_contact_no
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(),
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(insertQuery, [
@@ -106,63 +117,108 @@ exports.createGDN = async (req, res) => {
       wharf_staff_id,
       driver_contact_no,
       wharf_contact_no,
-      length_cm,
-      width_cm,
-      height_cm,
     ]);
 
     const gdnId = result.insertId;
 
-    // 2. Generate GDN No => YYYYMMDD/ID
+    // ---------------------------------------------------------
+    // 3. Generate GDN No
+    // ---------------------------------------------------------
     const gdnNo = `GDN/${formatDateYYYYMMDD(date)}/${gdnId}`;
 
-    // 3. Update generated GDN number
     await connection.query(
       `
-      UPDATE freight_tracking_app.goods_deliver_notes
-      SET gdn_no = ?
-      WHERE id = ?
+        UPDATE freight_tracking_app.goods_deliver_notes
+        SET gdn_no = ?
+        WHERE id = ?
       `,
       [gdnNo, gdnId],
     );
 
-    // 4. Update Packing Lists → attach GDN & Close them
+    // ---------------------------------------------------------
+    // 4. Insert GDN Measurements
+    // ---------------------------------------------------------
+    if (measurements && measurements.length > 0) {
+      const measurementValues = measurements.map((measurement) => [
+        gdnId,
+        measurement.length_cm ?? null,
+        measurement.width_cm ?? null,
+        measurement.height_cm ?? null,
+        measurement.packages ?? null,
+        measurement.total ?? null,
+        measurement.uom ?? null,
+        measurement.cbm ?? null,
+        measurement.volume ?? null,
+      ]);
+
+      await connection.query(
+        `
+          INSERT INTO freight_tracking_app.gdn_measurements (
+            gdn_id,
+            length_cm,
+            width_cm,
+            height_cm,
+            packages,
+            total,
+            uom,
+            cbm,
+            volume
+          )
+          VALUES ?
+        `,
+        [measurementValues],
+      );
+    }
+
+    // ---------------------------------------------------------
+    // 5. Update Packing Lists → Attach GDN & Close
+    // ---------------------------------------------------------
     if (packing_list_ids && packing_list_ids.length > 0) {
       await connection.query(
         `
-        UPDATE freight_tracking_app.packing_list
-        SET
-          gdn_id = ?,
-          status = ?,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE id IN (?)
+          UPDATE freight_tracking_app.packing_list
+          SET
+            gdn_id = ?,
+            status = ?,
+            updated_by = ?,
+            updated_on = NOW()
+          WHERE id IN (?)
         `,
         [
           gdnId,
-          "Closed", // Change to "closed" if that's what your system uses
+          "Closed",
           created_by,
           packing_list_ids,
         ],
       );
     }
 
-    // 5. Update Purchase Orders → set cargo dispatch date & status
+    // ---------------------------------------------------------
+    // 6. Update Purchase Orders
+    // ---------------------------------------------------------
     await connection.query(
       `
-      UPDATE freight_tracking_app.purchase_order po
-      INNER JOIN freight_tracking_app.packing_list pl
-        ON po.packing_list_id = pl.id
-      SET
-        po.cargo_dispatch_date = ?,
-        po.status = ?,
-        po.updated_by = ?,
-        po.updated_on = NOW()
-      WHERE pl.gdn_id = ?
+        UPDATE freight_tracking_app.purchase_order po
+        INNER JOIN freight_tracking_app.packing_list pl
+          ON po.packing_list_id = pl.id
+        SET
+          po.cargo_dispatch_date = ?,
+          po.status = ?,
+          po.updated_by = ?,
+          po.updated_on = NOW()
+        WHERE pl.gdn_id = ?
       `,
-      [date, "GDN Created", created_by, gdnId],
+      [
+        date,
+        "GDN Created",
+        created_by,
+        gdnId,
+      ],
     );
 
+    // ---------------------------------------------------------
+    // 7. Commit Transaction
+    // ---------------------------------------------------------
     await connection.commit();
 
     return res.status(201).json({
@@ -171,6 +227,7 @@ exports.createGDN = async (req, res) => {
         "Goods Deliver Note created successfully and Purchase Orders updated",
       gdn_id: gdnId,
       gdn_no: gdnNo,
+      measurement_count: measurements?.length || 0,
     });
   } catch (error) {
     await connection.rollback();
@@ -372,6 +429,7 @@ exports.getAllGDN = async (req, res) => {
       SELECT
         g.id,
         g.gdn_no,
+
         client.name AS client_name,
         manufacture.name AS manufacture_name,
         forwarder.name AS forwarder_name,
@@ -403,9 +461,6 @@ exports.getAllGDN = async (req, res) => {
         g.primary_seal_no,
         g.secondary_seal_no,
         g.custom_doc_status,
-        g.length_cm,
-        g.width_cm,
-        g.height_cm,
         g.driver_contact_no,
         g.wharf_contact_no,
 
@@ -416,16 +471,41 @@ exports.getAllGDN = async (req, res) => {
 
         -- Packing list details
         COALESCE(
-          JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', p.id,
-              'shipping_mode', p.shipping_mode,
-              'packing_list_no', p.packing_list_no
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', p.id,
+                'shipping_mode', p.shipping_mode,
+                'packing_list_no', p.packing_list_no
+              )
             )
+            FROM freight_tracking_app.packing_list p
+            WHERE p.gdn_id = g.id
           ),
           JSON_ARRAY()
-        ) AS packing_lists
+        ) AS packing_lists,
 
+        -- GDN measurements
+        COALESCE(
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', gm.id,
+                'length_cm', gm.length_cm,
+                'width_cm', gm.width_cm,
+                'height_cm', gm.height_cm,
+                'packages', gm.packages,
+                'total', gm.total,
+                'uom', gm.uom,
+                'cbm', gm.cbm,
+                'volume', gm.volume
+              )
+            )
+            FROM freight_tracking_app.gdn_measurements gm
+            WHERE gm.gdn_id = g.id
+          ),
+          JSON_ARRAY()
+        ) AS measurements
 
       FROM freight_tracking_app.goods_deliver_notes g
 
@@ -444,11 +524,6 @@ exports.getAllGDN = async (req, res) => {
       LEFT JOIN freight_tracking_app.wharf_staff wharf
         ON g.wharf_staff_id = wharf.id
 
-      LEFT JOIN freight_tracking_app.packing_list p
-        ON p.gdn_id = g.id
-
-      GROUP BY g.id
-
       ORDER BY g.id DESC;
     `;
 
@@ -457,13 +532,24 @@ exports.getAllGDN = async (req, res) => {
     const result = rows.map((row) => ({
       ...row,
 
-      // mysql2 already returns JSON as object
-      packing_lists: Array.isArray(row.packing_lists)
-        ? row.packing_lists.filter((item) => item.id !== null)
-        : [],
+      // mysql2 normally returns JSON columns as objects,
+      // but handle string JSON as well.
+      packing_lists:
+        Array.isArray(row.packing_lists)
+          ? row.packing_lists
+          : typeof row.packing_lists === "string"
+            ? JSON.parse(row.packing_lists)
+            : [],
+
+      measurements:
+        Array.isArray(row.measurements)
+          ? row.measurements
+          : typeof row.measurements === "string"
+            ? JSON.parse(row.measurements)
+            : [],
     }));
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: result.length,
       data: result,
@@ -471,7 +557,7 @@ exports.getAllGDN = async (req, res) => {
   } catch (error) {
     console.error("Get All GDN Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error retrieving Goods Deliver Notes",
       error: error.message,
@@ -520,9 +606,6 @@ exports.getGDNById = async (req, res) => {
         g.primary_seal_no,
         g.secondary_seal_no,
         g.custom_doc_status,
-        g.length_cm,
-        g.width_cm,
-        g.height_cm,
         g.driver_contact_no,
         g.wharf_contact_no,
 
@@ -533,23 +616,48 @@ exports.getGDNById = async (req, res) => {
 
         -- Packing list details
         COALESCE(
-          JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', p.id,
-              'shipping_mode', p.shipping_mode,
-              'packing_list_no', p.packing_list_no,
-              'total_quantity', p.total_quantity,
-              'date', p.date,
-              'status', p.status,
-              'total_cartons', p.total_cartons,
-              'total_gross_weight_kg', p.total_gross_weight_kg,
-              'total_net_weight_kg', p.total_net_weight_kg,
-              'total_cbm', p.total_cbm
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', p.id,
+                'shipping_mode', p.shipping_mode,
+                'packing_list_no', p.packing_list_no,
+                'total_quantity', p.total_quantity,
+                'date', p.date,
+                'status', p.status,
+                'total_cartons', p.total_cartons,
+                'total_gross_weight_kg', p.total_gross_weight_kg,
+                'total_net_weight_kg', p.total_net_weight_kg,
+                'total_cbm', p.total_cbm
+              )
             )
+            FROM freight_tracking_app.packing_list p
+            WHERE p.gdn_id = g.id
           ),
           JSON_ARRAY()
-        ) AS packing_lists
+        ) AS packing_lists,
 
+        -- GDN measurements
+        COALESCE(
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', gm.id,
+                'length_cm', gm.length_cm,
+                'width_cm', gm.width_cm,
+                'height_cm', gm.height_cm,
+                'packages', gm.packages,
+                'total', gm.total,
+                'uom', gm.uom,
+                'cbm', gm.cbm,
+                'volume', gm.volume
+              )
+            )
+            FROM freight_tracking_app.gdn_measurements gm
+            WHERE gm.gdn_id = g.id
+          ),
+          JSON_ARRAY()
+        ) AS measurements
 
       FROM freight_tracking_app.goods_deliver_notes g
 
@@ -568,12 +676,7 @@ exports.getGDNById = async (req, res) => {
       LEFT JOIN freight_tracking_app.wharf_staff wharf
         ON g.wharf_staff_id = wharf.id
 
-      LEFT JOIN freight_tracking_app.packing_list p
-        ON p.gdn_id = g.id
-
-      WHERE g.id = ?
-
-      GROUP BY g.id;
+      WHERE g.id = ?;
     `;
 
     const [rows] = await db.query(query, [id]);
@@ -585,23 +688,35 @@ exports.getGDNById = async (req, res) => {
       });
     }
 
-    const result = {
-      ...rows[0],
+    const row = rows[0];
 
-      // mysql2 returns JSON_ARRAYAGG as object array
-      packing_lists: Array.isArray(rows[0].packing_lists)
-        ? rows[0].packing_lists.filter((item) => item.id !== null)
-        : [],
+    const result = {
+      ...row,
+
+      // Handle mysql2 JSON response
+      packing_lists:
+        Array.isArray(row.packing_lists)
+          ? row.packing_lists
+          : typeof row.packing_lists === "string"
+            ? JSON.parse(row.packing_lists)
+            : [],
+
+      measurements:
+        Array.isArray(row.measurements)
+          ? row.measurements
+          : typeof row.measurements === "string"
+            ? JSON.parse(row.measurements)
+            : [],
     };
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: result,
     });
   } catch (error) {
     console.error("Get GDN By ID Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error retrieving Goods Deliver Note",
       error: error.message,

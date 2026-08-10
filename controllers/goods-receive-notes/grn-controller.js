@@ -1,44 +1,49 @@
 const db = require("../../sql-connection");
 
 exports.createGoodsReceiveNote = async (req, res) => {
-    const connection = await db.getConnection();
+  const connection = await db.getConnection();
 
-    try {
-        await connection.beginTransaction();
+  try {
+    await connection.beginTransaction();
 
-        const {
-            client_id,
-            manufacture_id,
-            forwarder_id,
-            recipient_id,
-            date,
-            quantity,
-            status,
-            comments,
-            created_by,
-            packing_list_ids
-        } = req.body;
+    const {
+      client_id,
+      manufacture_id,
+      forwarder_id,
+      recipient_id,
+      recipient_contact,
+      date,
+      quantity,
+      status,
+      comments,
+      created_by,
+      packing_list_ids,
+    } = req.body;
 
-        // Validate input
-        if (!packing_list_ids || !Array.isArray(packing_list_ids) || packing_list_ids.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: "packing_list_ids is required"
-            });
-        }
+    // Validate input
+    if (
+      !packing_list_ids ||
+      !Array.isArray(packing_list_ids) ||
+      packing_list_ids.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "packing_list_ids is required",
+      });
+    }
 
-        const quantityNum = Number(quantity);
+    const quantityNum = Number(quantity);
 
-        if (isNaN(quantityNum)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid GRN quantity"
-            });
-        }
+    if (isNaN(quantityNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid GRN quantity",
+      });
+    }
 
-        // Fetch packing lists
-        const [packingLists] = await connection.query(
-            `
+    // Fetch packing lists
+    const [packingLists] = await connection.query(
+      `
                 SELECT
                     id,
                     total_quantity,
@@ -46,56 +51,57 @@ exports.createGoodsReceiveNote = async (req, res) => {
                 FROM freight_tracking_app.packing_list
                 WHERE id IN (?)
       `,
-            [packing_list_ids]
-        );
+      [packing_list_ids],
+    );
 
-        // Validate existence
-        if (packingLists.length !== packing_list_ids.length) {
-            await connection.rollback();
-            return res.status(404).json({
-                success: false,
-                message: "One or more packing lists not found"
-            });
-        }
+    // Validate existence
+    if (packingLists.length !== packing_list_ids.length) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "One or more packing lists not found",
+      });
+    }
 
-        // Prevent already assigned packing lists
-        const alreadyAssigned = packingLists.filter(pl => pl.grn_id !== null);
+    // Prevent already assigned packing lists
+    const alreadyAssigned = packingLists.filter((pl) => pl.grn_id !== null);
 
-        if (alreadyAssigned.length > 0) {
-            await connection.rollback();
-            return res.status(400).json({
-                success: false,
-                message: "Some packing lists already assigned to a GRN",
-                data: alreadyAssigned.map(i => i.id)
-            });
-        }
+    if (alreadyAssigned.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Some packing lists already assigned to a GRN",
+        data: alreadyAssigned.map((i) => i.id),
+      });
+    }
 
-        // Calculate total quantity
-        const totalPackingQty = packingLists.reduce((sum, item) => {
-            return sum + (Number(item.total_quantity) || 0);
-        }, 0);
+    // Calculate total quantity
+    const totalPackingQty = packingLists.reduce((sum, item) => {
+      return sum + (Number(item.total_quantity) || 0);
+    }, 0);
 
-        // STRICT EQUALITY CHECK
-        if (quantityNum !== totalPackingQty) {
-            await connection.rollback();
+    // STRICT EQUALITY CHECK
+    if (quantityNum !== totalPackingQty) {
+      await connection.rollback();
 
-            return res.status(400).json({
-                success: false,
-                message: "GRN quantity must equal total packing list quantity",
-                grnQuantity: quantityNum,
-                totalPackingListQuantity: totalPackingQty
-            });
-        }
+      return res.status(400).json({
+        success: false,
+        message: "GRN quantity must equal total packing list quantity",
+        grnQuantity: quantityNum,
+        totalPackingListQuantity: totalPackingQty,
+      });
+    }
 
-        // Insert GRN
-        const [result] = await connection.query(
-            `
+    // Insert GRN
+    const [result] = await connection.query(
+      `
       INSERT INTO freight_tracking_app.goods_receive_notes
       (
         client_id,
         manufacture_id,
         forwarder_id,
         recipient_id,
+        recipient_contact,
         date,
         quantity,
         status,
@@ -103,26 +109,27 @@ exports.createGoodsReceiveNote = async (req, res) => {
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
-            [
-                client_id,
-                manufacture_id,
-                forwarder_id,
-                recipient_id,
-                date,
-                quantityNum,
-                status,
-                comments,
-                created_by
-            ]
-        );
+      [
+        client_id,
+        manufacture_id,
+        forwarder_id,
+        recipient_id,
+        recipient_contact,
+        date,
+        quantityNum,
+        status,
+        comments,
+        created_by,
+      ],
+    );
 
-        const grnId = result.insertId;
+    const grnId = result.insertId;
 
-        // Update packing lists
-        await connection.query(
-            `
+    // Update packing lists
+    await connection.query(
+      `
       UPDATE freight_tracking_app.packing_list
       SET
         grn_id = ?,
@@ -130,161 +137,164 @@ exports.createGoodsReceiveNote = async (req, res) => {
         updated_on = NOW()
       WHERE id IN (?)
       `,
-            [grnId, created_by, packing_list_ids]
-        );
+      [grnId, created_by, packing_list_ids],
+    );
 
-        await connection.commit();
+    await connection.commit();
 
-        return res.status(201).json({
-            success: true,
-            message: "GRN created successfully",
-            data: {
-                grn_id: grnId,
-                quantity: quantityNum,
-                packing_list_ids
-            }
-        });
+    return res.status(201).json({
+      success: true,
+      message: "GRN created successfully",
+      data: {
+        grn_id: grnId,
+        quantity: quantityNum,
+        packing_list_ids,
+      },
+    });
+  } catch (error) {
+    await connection.rollback();
 
-    } catch (error) {
-        await connection.rollback();
-
-        return res.status(500).json({
-            success: false,
-            message: "Error creating GRN",
-            error: error.message
-        });
-
-    } finally {
-        connection.release();
-    }
+    return res.status(500).json({
+      success: false,
+      message: "Error creating GRN",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
+  }
 };
 
-
 exports.updateGoodsReceiveNote = async (req, res) => {
-    const connection = await db.getConnection();
+  const connection = await db.getConnection();
 
-    try {
-        await connection.beginTransaction();
+  try {
+    await connection.beginTransaction();
 
-        const grnId = req.params.id;
+    const grnId = req.params.id;
 
-        const {
-            client_id,
-            manufacture_id,
-            forwarder_id,
-            recipient_id,
-            date,
-            quantity,
-            status,
-            comments,
-            updated_by,
-            packing_list_ids
-        } = req.body;
+    const {
+      client_id,
+      manufacture_id,
+      forwarder_id,
+      recipient_id,
+      recipient_contact,
+      date,
+      quantity,
+      status,
+      comments,
+      updated_by,
+      packing_list_ids,
+    } = req.body;
 
-        if (!grnId) {
-            return res.status(400).json({
-                success: false,
-                message: "GRN ID is required"
-            });
-        }
+    if (!grnId) {
+      return res.status(400).json({
+        success: false,
+        message: "GRN ID is required",
+      });
+    }
 
-        if (!packing_list_ids || !Array.isArray(packing_list_ids) || packing_list_ids.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: "packing_list_ids is required"
-            });
-        }
+    if (
+      !packing_list_ids ||
+      !Array.isArray(packing_list_ids) ||
+      packing_list_ids.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "packing_list_ids is required",
+      });
+    }
 
-        const quantityNum = Number(quantity);
+    const quantityNum = Number(quantity);
 
-        if (isNaN(quantityNum)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid GRN quantity"
-            });
-        }
+    if (isNaN(quantityNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid GRN quantity",
+      });
+    }
 
-        // Check GRN exists
-        const [existingGrn] = await connection.query(
-            `SELECT * FROM freight_tracking_app.goods_receive_notes WHERE id = ?`,
-            [grnId]
-        );
+    // Check GRN exists
+    const [existingGrn] = await connection.query(
+      `SELECT * FROM freight_tracking_app.goods_receive_notes WHERE id = ?`,
+      [grnId],
+    );
 
-        if (existingGrn.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({
-                success: false,
-                message: "GRN not found"
-            });
-        }
+    if (existingGrn.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "GRN not found",
+      });
+    }
 
-        // Get selected packing lists
-        const [packingLists] = await connection.query(
-            `
+    // Get selected packing lists
+    const [packingLists] = await connection.query(
+      `
       SELECT id, total_quantity, grn_id
       FROM freight_tracking_app.packing_list
       WHERE id IN (?)
       `,
-            [packing_list_ids]
-        );
+      [packing_list_ids],
+    );
 
-        if (packingLists.length !== packing_list_ids.length) {
-            await connection.rollback();
-            return res.status(404).json({
-                success: false,
-                message: "One or more packing lists not found"
-            });
-        }
+    if (packingLists.length !== packing_list_ids.length) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "One or more packing lists not found",
+      });
+    }
 
-        // Check already assigned packing lists (excluding current GRN)
-        const alreadyAssigned = packingLists.filter(
-            pl => pl.grn_id !== null && pl.grn_id !== Number(grnId)
-        );
+    // Check already assigned packing lists (excluding current GRN)
+    const alreadyAssigned = packingLists.filter(
+      (pl) => pl.grn_id !== null && pl.grn_id !== Number(grnId),
+    );
 
-        if (alreadyAssigned.length > 0) {
-            await connection.rollback();
-            return res.status(400).json({
-                success: false,
-                message: "Some packing lists are already assigned to another GRN",
-                data: alreadyAssigned.map(i => i.id)
-            });
-        }
+    if (alreadyAssigned.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Some packing lists are already assigned to another GRN",
+        data: alreadyAssigned.map((i) => i.id),
+      });
+    }
 
-        // Validate quantity match
-        const totalPackingQty = packingLists.reduce((sum, item) => {
-            return sum + (Number(item.total_quantity) || 0);
-        }, 0);
+    // Validate quantity match
+    const totalPackingQty = packingLists.reduce((sum, item) => {
+      return sum + (Number(item.total_quantity) || 0);
+    }, 0);
 
-        if (quantityNum !== totalPackingQty) {
-            await connection.rollback();
+    if (quantityNum !== totalPackingQty) {
+      await connection.rollback();
 
-            return res.status(400).json({
-                success: false,
-                message: "GRN quantity must equal total packing list quantity",
-                grnQuantity: quantityNum,
-                totalPackingListQuantity: totalPackingQty
-            });
-        }
+      return res.status(400).json({
+        success: false,
+        message: "GRN quantity must equal total packing list quantity",
+        grnQuantity: quantityNum,
+        totalPackingListQuantity: totalPackingQty,
+      });
+    }
 
-        // 🔥 STEP 1: Clear old packing list links
-        await connection.query(
-            `
+    // 🔥 STEP 1: Clear old packing list links
+    await connection.query(
+      `
       UPDATE freight_tracking_app.packing_list
       SET grn_id = NULL, updated_by = ?, updated_on = NOW()
       WHERE grn_id = ?
       `,
-            [updated_by, grnId]
-        );
+      [updated_by, grnId],
+    );
 
-        // 🔥 STEP 2: Update GRN
-        await connection.query(
-            `
+    // 🔥 STEP 2: Update GRN
+    await connection.query(
+      `
       UPDATE freight_tracking_app.goods_receive_notes
       SET
         client_id = ?,
         manufacture_id = ?,
         forwarder_id = ?,
         recipient_id = ?,
+        recipient_contact = ?,
         date = ?,
         quantity = ?,
         status = ?,
@@ -293,76 +303,81 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         updated_on = NOW()
       WHERE id = ?
       `,
-            [
-                client_id,
-                manufacture_id,
-                forwarder_id,
-                recipient_id,
-                date,
-                quantityNum,
-                status,
-                comments,
-                updated_by,
-                grnId
-            ]
-        );
+      [
+        client_id,
+        manufacture_id,
+        forwarder_id,
+        recipient_id,
+        recipient_contact,
+        date,
+        quantityNum,
+        status,
+        comments,
+        updated_by,
+        grnId,
+      ],
+    );
 
-        // 🔥 STEP 3: Assign new packing lists
-        await connection.query(
-            `
+    // 🔥 STEP 3: Assign new packing lists
+    await connection.query(
+      `
       UPDATE freight_tracking_app.packing_list
       SET grn_id = ?, updated_by = ?, updated_on = NOW()
       WHERE id IN (?)
       `,
-            [grnId, updated_by, packing_list_ids]
-        );
+      [grnId, updated_by, packing_list_ids],
+    );
 
-        await connection.commit();
+    await connection.commit();
 
-        return res.status(200).json({
-            success: true,
-            message: "GRN updated successfully",
-            data: {
-                grn_id: grnId,
-                quantity: quantityNum,
-                packing_list_ids
-            }
-        });
+    return res.status(200).json({
+      success: true,
+      message: "GRN updated successfully",
+      data: {
+        grn_id: grnId,
+        quantity: quantityNum,
+        packing_list_ids,
+      },
+    });
+  } catch (error) {
+    await connection.rollback();
 
-    } catch (error) {
-        await connection.rollback();
-
-        return res.status(500).json({
-            success: false,
-            message: "Error updating GRN",
-            error: error.message
-        });
-
-    } finally {
-        connection.release();
-    }
+    return res.status(500).json({
+      success: false,
+      message: "Error updating GRN",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
+  }
 };
 
-
 exports.getAllGoodsReceiveNotes = async (req, res) => {
-    const connection = await db.getConnection();
+  const connection = await db.getConnection();
 
-    try {
-        const { shipping_mode } = req.query;
+  try {
+    const { shipping_mode } = req.query;
 
-        let query = `
-            SELECT DISTINCT
+    let query = `
+            SELECT
                 grn.id,
 
                 -- GDN details
-                gdn.id AS gdn_id,
-                gdn.gdn_no,
+                JSON_ARRAYAGG(
+                    CASE
+                        WHEN gdn.id IS NOT NULL THEN
+                            JSON_OBJECT(
+                                'id', gdn.id,
+                                'gdn_no', gdn.gdn_no
+                            )
+                    END
+                ) AS gdns,
 
                 client.name AS client_id,
                 manufacture.name AS manufacture_id,
                 forwarder.name AS forwarder_id,
 
-                -- Recipient details from freight_staff
+                -- Recipient details
                 recipient.name AS recipient_name,
                 recipient.contact_no AS recipient_contact_no,
 
@@ -374,7 +389,8 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
                 grn.created_by,
                 grn.created_on,
                 grn.updated_by,
-                grn.updated_on
+                grn.updated_on,
+                grn.recipient_contact
 
             FROM freight_tracking_app.goods_receive_notes grn
 
@@ -394,25 +410,45 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
                 ON grn.recipient_id = recipient.id
         `;
 
-        const params = [];
+    const params = [];
 
-        if (shipping_mode) {
-            query += `
+    if (shipping_mode) {
+      query += `
                 INNER JOIN freight_tracking_app.packing_list pl
                     ON pl.grn_id = grn.id
-                WHERE pl.shipping_mode = ?
+                    AND pl.shipping_mode = ?
             `;
 
-            params.push(shipping_mode);
-        }
+      params.push(shipping_mode);
+    }
 
-        query += ` ORDER BY grn.id DESC`;
+    query += `
+            GROUP BY
+                grn.id,
+                client.name,
+                manufacture.name,
+                forwarder.name,
+                recipient.name,
+                recipient.contact_no,
+                grn.date,
+                grn.quantity,
+                grn.status,
+                grn.bill_id,
+                grn.comments,
+                grn.created_by,
+                grn.created_on,
+                grn.updated_by,
+                grn.updated_on,
+                grn.recipient_contact
 
-        const [grns] = await connection.query(query, params);
+            ORDER BY grn.id DESC
+        `;
 
-        // Attach packing lists
-        for (const grn of grns) {
-            let packingListQuery = `
+    const [grns] = await connection.query(query, params);
+
+    // Attach packing lists
+    for (const grn of grns) {
+      let packingListQuery = `
                 SELECT
                     id,
                     packing_list_no,
@@ -433,48 +469,56 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
                 WHERE grn_id = ?
             `;
 
-            const packingParams = [grn.id];
+      const packingParams = [grn.id];
 
-            // Only include packing lists matching shipping mode
-            if (shipping_mode) {
-                packingListQuery += ` AND shipping_mode = ?`;
-                packingParams.push(shipping_mode);
-            }
+      if (shipping_mode) {
+        packingListQuery += `
+                    AND shipping_mode = ?
+                `;
 
-            const [packingLists] = await connection.query(
-                packingListQuery,
-                packingParams
-            );
+        packingParams.push(shipping_mode);
+      }
 
-            grn.packing_lists = packingLists;
-        }
+      const [packingLists] = await connection.query(
+        packingListQuery,
+        packingParams,
+      );
 
-        return res.status(200).json({
-            success: true,
-            message: "GRNs fetched successfully",
-            data: grns
-        });
+      grn.packing_lists = packingLists;
 
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Error fetching GRNs",
-            error: error.message
-        });
+      // Convert JSON string to array if necessary
+      if (typeof grn.gdns === "string") {
+        grn.gdns = JSON.parse(grn.gdns);
+      }
 
-    } finally {
-        connection.release();
+      // Remove null GDN entries
+      grn.gdns = (grn.gdns || []).filter((gdn) => gdn !== null);
     }
+
+    return res.status(200).json({
+      success: true,
+      message: "GRNs fetched successfully",
+      data: grns,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching GRNs",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
+  }
 };
 
 exports.getGoodsReceiveNoteById = async (req, res) => {
-    const connection = await db.getConnection();
+  const connection = await db.getConnection();
 
-    try {
-        const grnId = req.params.id;
+  try {
+    const grnId = req.params.id;
 
-        const [grnResult] = await connection.query(
-            `
+    const [grnResult] = await connection.query(
+      `
             SELECT 
                 grn.id,
 
@@ -494,7 +538,8 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
                 grn.created_by,
                 grn.created_on,
                 grn.updated_by,
-                grn.updated_on
+                grn.updated_on,
+                grn.recipient_contact
 
             FROM freight_tracking_app.goods_receive_notes grn
 
@@ -512,20 +557,20 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
             WHERE grn.id = ?
             `,
-            [grnId]
-        );
+      [grnId],
+    );
 
-        if (grnResult.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "GRN not found"
-            });
-        }
+    if (grnResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "GRN not found",
+      });
+    }
 
-        const grn = grnResult[0];
+    const grn = grnResult[0];
 
-        const [packingLists] = await connection.query(
-            `
+    const [packingLists] = await connection.query(
+      `
             SELECT 
                 id,
                 packing_list_no,
@@ -545,25 +590,23 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
             FROM freight_tracking_app.packing_list
             WHERE grn_id = ?
             `,
-            [grnId]
-        );
+      [grnId],
+    );
 
-        grn.packing_lists = packingLists;
+    grn.packing_lists = packingLists;
 
-        return res.status(200).json({
-            success: true,
-            message: "GRN fetched successfully",
-            data: grn
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Error fetching GRN",
-            error: error.message
-        });
-
-    } finally {
-        connection.release();
-    }
+    return res.status(200).json({
+      success: true,
+      message: "GRN fetched successfully",
+      data: grn,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching GRN",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
+  }
 };

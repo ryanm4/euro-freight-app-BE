@@ -225,6 +225,7 @@ CREATE TABLE
         `manufacture_id` INT NULL,
         `forwarder_id` INT NULL,
         `recipient_id` INT NULL,
+        `recipient_contact` VARCHAR(45) NULL,
         `date` DATETIME NULL,
         `quantity` INT NULL,
         `bill_id` INT NULL,
@@ -335,4 +336,21 @@ CREATE TABLE
         `name` VARCHAR(45) NULL,
         `contact_no` VARCHAR(45) NULL,
         PRIMARY KEY (`id`)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`gdn_measurements` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `gdn_id` INT NOT NULL,
+        `length_cm` DECIMAL(10, 3) NULL,
+        `width_cm` DECIMAL(10, 3) NULL,
+        `height_cm` DECIMAL(10, 3) NULL,
+        `packages` INT NULL,
+        `total` DECIMAL(10, 3) NULL,
+        `uom` VARCHAR(45) NULL,
+        `cbm` DECIMAL(10, 3) NULL,
+        `volume` DECIMAL(10, 3) NULL,
+        PRIMARY KEY (`id`),
+        INDEX `gdn_idx` (`gdn_id` ASC) VISIBLE,
+        CONSTRAINT `gdn` FOREIGN KEY (`gdn_id`) REFERENCES `freight_tracking_app`.`goods_deliver_notes` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
     );
