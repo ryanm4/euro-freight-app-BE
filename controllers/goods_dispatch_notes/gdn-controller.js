@@ -184,12 +184,7 @@ exports.createGDN = async (req, res) => {
             updated_on = NOW()
           WHERE id IN (?)
         `,
-        [
-          gdnId,
-          "Closed",
-          created_by,
-          packing_list_ids,
-        ],
+        [gdnId, "Closed", created_by, packing_list_ids],
       );
     }
 
@@ -208,12 +203,7 @@ exports.createGDN = async (req, res) => {
           po.updated_on = NOW()
         WHERE pl.gdn_id = ?
       `,
-      [
-        date,
-        "GDN Created",
-        created_by,
-        gdnId,
-      ],
+      [date, "GDN Created", created_by, gdnId],
     );
 
     // ---------------------------------------------------------
@@ -424,8 +414,10 @@ exports.updateGDN = async (req, res) => {
 
 // Get All Goods Deliver Receive Notes
 exports.getAllGDN = async (req, res) => {
+  const { status } = req.query;
+
   try {
-    const query = `
+    let query = `
       SELECT
         g.id,
         g.gdn_no,
@@ -524,29 +516,34 @@ exports.getAllGDN = async (req, res) => {
       LEFT JOIN freight_tracking_app.wharf_staff wharf
         ON g.wharf_staff_id = wharf.id
 
-      ORDER BY g.id DESC;
+      
     `;
+    const params = [];
 
-    const [rows] = await db.query(query);
+    if (status) {
+      query += ` WHERE g.status = ?`;
+      params.push(status);
+    }
+    query += `ORDER BY g.id DESC;`;
+
+    const [rows] = await db.query(query, params);
 
     const result = rows.map((row) => ({
       ...row,
 
       // mysql2 normally returns JSON columns as objects,
       // but handle string JSON as well.
-      packing_lists:
-        Array.isArray(row.packing_lists)
-          ? row.packing_lists
-          : typeof row.packing_lists === "string"
-            ? JSON.parse(row.packing_lists)
-            : [],
+      packing_lists: Array.isArray(row.packing_lists)
+        ? row.packing_lists
+        : typeof row.packing_lists === "string"
+          ? JSON.parse(row.packing_lists)
+          : [],
 
-      measurements:
-        Array.isArray(row.measurements)
-          ? row.measurements
-          : typeof row.measurements === "string"
-            ? JSON.parse(row.measurements)
-            : [],
+      measurements: Array.isArray(row.measurements)
+        ? row.measurements
+        : typeof row.measurements === "string"
+          ? JSON.parse(row.measurements)
+          : [],
     }));
 
     return res.status(200).json({
@@ -694,19 +691,17 @@ exports.getGDNById = async (req, res) => {
       ...row,
 
       // Handle mysql2 JSON response
-      packing_lists:
-        Array.isArray(row.packing_lists)
-          ? row.packing_lists
-          : typeof row.packing_lists === "string"
-            ? JSON.parse(row.packing_lists)
-            : [],
+      packing_lists: Array.isArray(row.packing_lists)
+        ? row.packing_lists
+        : typeof row.packing_lists === "string"
+          ? JSON.parse(row.packing_lists)
+          : [],
 
-      measurements:
-        Array.isArray(row.measurements)
-          ? row.measurements
-          : typeof row.measurements === "string"
-            ? JSON.parse(row.measurements)
-            : [],
+      measurements: Array.isArray(row.measurements)
+        ? row.measurements
+        : typeof row.measurements === "string"
+          ? JSON.parse(row.measurements)
+          : [],
     };
 
     return res.status(200).json({

@@ -35,7 +35,7 @@ exports.createHBL = async (req, res) => {
       onboard_date,
       created_by,
       grn_ids,
-      ports = []
+      ports = [],
     } = req.body;
 
     // =====================
@@ -48,7 +48,7 @@ exports.createHBL = async (req, res) => {
     if (typeof grn_ids === "string") {
       grn_ids = grn_ids
         .split(",")
-        .map(id => parseInt(id.trim()))
+        .map((id) => parseInt(id.trim()))
         .filter(Boolean);
     }
 
@@ -116,7 +116,7 @@ exports.createHBL = async (req, res) => {
       clean(cbm),
       clean(container_seal_no),
       clean(onboard_date),
-      clean(created_by)
+      clean(created_by),
     ]);
 
     const hblId = result.insertId;
@@ -125,12 +125,12 @@ exports.createHBL = async (req, res) => {
     // Insert Multiple Ports
     // =====================
     if (Array.isArray(ports) && ports.length > 0) {
-      const portValues = ports.map(p => [
+      const portValues = ports.map((p) => [
         hblId,
         clean(p.port),
         clean(p.status),
         clean(created_by),
-        new Date()
+        new Date(),
       ]);
 
       await connection.query(
@@ -144,7 +144,7 @@ exports.createHBL = async (req, res) => {
         )
         VALUES ?
         `,
-        [portValues]
+        [portValues],
       );
     }
 
@@ -162,14 +162,11 @@ exports.createHBL = async (req, res) => {
       WHERE id IN (${placeholders})
     `;
 
-    const [updateResult] = await connection.execute(
-      updateGRNQuery,
-      [
-        hblId,
-        created_by || null,
-        ...grn_ids
-      ]
-    );
+    const [updateResult] = await connection.execute(updateGRNQuery, [
+      hblId,
+      created_by || null,
+      ...grn_ids,
+    ]);
 
     if (updateResult.affectedRows === 0) {
       throw new Error("No GRNs updated. Check grn_ids");
@@ -190,14 +187,11 @@ exports.createHBL = async (req, res) => {
       WHERE pl.grn_id IN (${placeholders})
     `;
 
-    const [poUpdateResult] = await connection.execute(
-      updatePOQuery,
-      [
-        clean(mbl_mawb_no),
-        created_by || null,
-        ...grn_ids
-      ]
-    );
+    const [poUpdateResult] = await connection.execute(updatePOQuery, [
+      clean(mbl_mawb_no),
+      created_by || null,
+      ...grn_ids,
+    ]);
 
     await connection.commit();
 
@@ -209,24 +203,21 @@ exports.createHBL = async (req, res) => {
         updated_grns: grn_ids,
         ports_count: ports.length,
         grn_updated_count: updateResult.affectedRows,
-        po_updated_count: poUpdateResult.affectedRows
-      }
+        po_updated_count: poUpdateResult.affectedRows,
+      },
     });
-
   } catch (error) {
     await connection.rollback();
 
     return res.status(500).json({
       success: false,
       message: "Error creating HBL",
-      error: error.message
+      error: error.message,
     });
-
   } finally {
     connection.release();
   }
 };
-
 
 // Update HBL + reassign GRNs
 exports.updateHBL = async (req, res) => {
@@ -262,7 +253,7 @@ exports.updateHBL = async (req, res) => {
       onboard_date,
       updated_by,
       grn_ids,
-      ports = [] // NEW: multi ports
+      ports = [], // NEW: multi ports
     } = req.body;
 
     // =========================
@@ -336,7 +327,7 @@ exports.updateHBL = async (req, res) => {
       clean(container_seal_no),
       clean(onboard_date),
       clean(updated_by),
-      id
+      id,
     ]);
 
     if (hblUpdate.affectedRows === 0) {
@@ -352,7 +343,7 @@ exports.updateHBL = async (req, res) => {
       SET bill_id = NULL
       WHERE bill_id = ?
       `,
-      [id]
+      [id],
     );
 
     // =========================
@@ -367,7 +358,7 @@ exports.updateHBL = async (req, res) => {
         SET bill_id = ?, updated_by = ?, updated_on = NOW()
         WHERE id IN (${placeholders})
         `,
-        [id, updated_by || null, ...grn_ids]
+        [id, updated_by || null, ...grn_ids],
       );
     }
 
@@ -378,17 +369,17 @@ exports.updateHBL = async (req, res) => {
     // delete old ports
     await connection.execute(
       `DELETE FROM freight_tracking_app.multi_ports WHERE hbl_hawb_id = ?`,
-      [id]
+      [id],
     );
 
     // insert new ports
     if (Array.isArray(ports) && ports.length > 0) {
-      const values = ports.map(p => [
+      const values = ports.map((p) => [
         id,
         p.port,
         p.status || null,
         updated_by || null,
-        new Date()
+        new Date(),
       ]);
 
       await connection.query(
@@ -397,7 +388,7 @@ exports.updateHBL = async (req, res) => {
         (hbl_hawb_id, port, status, created_by, created_on)
         VALUES ?
         `,
-        [values]
+        [values],
       );
     }
 
@@ -409,19 +400,17 @@ exports.updateHBL = async (req, res) => {
       data: {
         hbl_id: id,
         linked_grns: grn_ids,
-        ports_count: ports.length
-      }
+        ports_count: ports.length,
+      },
     });
-
   } catch (error) {
     await connection.rollback();
 
     return res.status(500).json({
       success: false,
       message: "Error updating HBL",
-      error: error.message
+      error: error.message,
     });
-
   } finally {
     connection.release();
   }
@@ -429,8 +418,9 @@ exports.updateHBL = async (req, res) => {
 
 // Get all HBLs with linked GRNs
 exports.getAllHBL = async (req, res) => {
+  const { status } = req.query;
   try {
-    const query = `
+    let query = `
       SELECT 
         h.id,
 
@@ -510,24 +500,31 @@ exports.getAllHBL = async (req, res) => {
           ) AS ports
         FROM freight_tracking_app.multi_ports
         GROUP BY hbl_hawb_id
-      ) p ON p.hbl_hawb_id = h.id
-
-      ORDER BY h.id DESC
+      ) p ON p.hbl_hawb_id = h.id      
     `;
 
-    const [rows] = await db.execute(query);
+    const params = [];
+
+    if (status) {
+      query += ` WHERE h.status = ?`;
+      params.push(status);
+    }
+    query += `ORDER BY h.id DESC;`;
+
+    const [rows] = await db.query(query, params);
+
+    // const [rows] = await db.execute(query);
 
     return res.status(200).json({
       success: true,
       message: "HBL list fetched successfully",
-      data: rows
+      data: rows,
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: "Error fetching HBL list",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -627,21 +624,20 @@ exports.getHBLById = async (req, res) => {
     if (!rows.length) {
       return res.status(404).json({
         success: false,
-        message: "HBL not found"
+        message: "HBL not found",
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "HBL fetched successfully",
-      data: rows[0]
+      data: rows[0],
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: "Error fetching HBL",
-      error: error.message
+      error: error.message,
     });
   }
 };
