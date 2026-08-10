@@ -1,6 +1,7 @@
 export const PACKING_LIST_STATUSES = [
   "DRAFT",
-  "CONFIRMED",
+  "COMPLETED",
   "SHIPPED",
   "CANCELLED",
+  "DISPATCHED",
 ];
