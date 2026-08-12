@@ -23,6 +23,12 @@ exports.uploadPurchaseOrderFile = async (req, res) => {
       });
     }
 
+    const uploadDir = path.join(os.tmpdir(), "uploads", "po");
+
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
     const d = new Date();
     const dateStr = [
       String(d.getDate()).padStart(2, "0"),
