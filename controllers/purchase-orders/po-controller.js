@@ -101,8 +101,8 @@ exports.createPurchaseOrder = async (req, res) => {
       `INSERT INTO purchase_order
      (poNumber, dateIssued, issuer, vendor, shipTo, totalQty,
       ex_factory_date, dc_in_house_date, filePath, packing_list_id,
-      hbl_nos, created_by, created_on)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      hbl_nos,status, created_by, created_on)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         body.poNumber,
         body.dateIssued ?? null,
@@ -115,6 +115,7 @@ exports.createPurchaseOrder = async (req, res) => {
         body.filePath ?? null,
         body.packingListId ?? null,
         body.hblNos ?? null,
+        body.status ?? null,
         body.created_by ?? null,
       ],
     );
@@ -297,7 +298,7 @@ exports.updatePurchaseOrder = async (req, res) => {
       `UPDATE purchase_order SET
         poNumber = ?, dateIssued = ?, issuer = ?, vendor = ?, shipTo = ?,
         totalQty = ?, ex_factory_date = ?, dc_in_house_date = ?, filePath = ?,
-        packing_list_id = ?, hbl_nos = ?, updated_by = ?, updated_on = NOW()
+        packing_list_id = ?, hbl_nos = ?, status = ?, updated_by = ?, updated_on = NOW()
         WHERE id = ?`,
       [
         body.poNumber,
@@ -311,6 +312,7 @@ exports.updatePurchaseOrder = async (req, res) => {
         body.filePath ?? null,
         body.packingListId ?? null,
         body.hblNos ?? null,
+        status = body.status ?? null,
         body.updated_by ?? null,
         poId,
       ],

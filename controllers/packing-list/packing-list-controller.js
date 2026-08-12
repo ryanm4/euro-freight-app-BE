@@ -34,6 +34,7 @@ exports.createPackingList = async (req, res) => {
       document_date,
       shipping_mode, // NEW: needed to build packing_list_no
       status,
+      file_url,
       total_volume,
       created_by,
       items, // parsed packing list line items, sent directly as JSON
@@ -164,11 +165,12 @@ exports.createPackingList = async (req, res) => {
         total_cbm,
         total_volume,
         shipping_mode,
+        file_url,
         status,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
