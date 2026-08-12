@@ -1,54 +1,43 @@
 CREATE TABLE
     `freight_tracking_app`.`purchase_order` (
         `id` INT NOT NULL AUTO_INCREMENT,
-        `po_number` VARCHAR(45) NULL,
-        `po_quantity` INT NULL,
-        `completed_qty` INT NULL,
-        `ex_factory_date` VARCHAR(45) NULL,
-        `shipping_mode` VARCHAR(45) NULL,
-        `final_destination` VARCHAR(45) NULL,
-        `supplier_id` INT NOT NULL,
-        `freight_forwarder` INT NOT NULL,
-        `payment_mode` VARCHAR(45) NULL,
-        `instructions` VARCHAR(45) NULL,
-        `cargo_dispatch_date` DATETIME NULL,
-        `PO_url` VARCHAR(45) NULL,
-        `status` VARCHAR(45) NULL,
-        `packing_list_id` INT NULL,
-        `hbl_no` VARCHAR(45) NULL,
-        `dc_inhouse_date` DATETIME NULL,
-        `eta_dest` VARCHAR(45) NULL,
-        `created_by` VARCHAR(45) NULL,
-        `created_on` DATETIME NULL,
-        `updated_by` VARCHAR(45) NULL,
-        `updated_on` DATETIME NULL,
-        PRIMARY KEY (`id`),
-        UNIQUE INDEX `id_UNIQUE` (`id` ASC) VISIBLE
-    );
-
-CREATE TABLE
-    `freight_tracking_app`.`po_details` (
-        `id` INT NOT NULL AUTO_INCREMENT,
-        `po_id` INT NOT NULL,
-        `sku` VARCHAR(45) NULL,
-        `item_name` VARCHAR(45) NULL,
-        `color` VARCHAR(45) NULL,
-        `size` VARCHAR(45) NULL,
-        `country_of_origin` VARCHAR(45) NULL,
-        `unit_cost` DECIMAL(10, 2) NULL,
-        `quantity` INT NULL,
-        `cartoons` INT NULL,
-        `gross_weight` VARCHAR(45) NULL,
-        `net_weight` VARCHAR(45) NULL,
-        `ctn_demi` VARCHAR(45) NULL,
-        `cbm` VARCHAR(45) NULL,
-        `dispatched_quantity` INT NULL,
-        `status` VARCHAR(45) NULL,
+        `poNumber` VARCHAR(45) NULL,
+        `dateIssued` VARCHAR(45) NULL,
+        `issuer` VARCHAR(45) NULL,
+        `vendor` VARCHAR(45) NULL,
+        `shipTo` VARCHAR(45) NULL,
+        `totalQty` INT NULL,
+        `ex_factory_date` DATETIME NULL,
+        `dc_in_house_date` DATETIME NULL,
+        `filePath` VARCHAR(45) NULL,
+        `packing_list_id` VARCHAR(45) NULL,
+        `hbl_nos` VARCHAR(45) NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
         `updated_on` DATETIME NULL,
         PRIMARY KEY (`id`)
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`po_items` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `po_id` INT NOT NULL,
+        `product` VARCHAR(45) NULL,
+        `style` VARCHAR(45) NULL,
+        `colorway` VARCHAR(45) NULL,
+        `xs` INT NULL,
+        `s` INT NULL,
+        `m` INT NULL,
+        `l` INT NULL,
+        `xl` INT NULL,
+        `2xl` INT NULL,
+        `3xl` INT NULL,
+        `4xl` INT NULL,
+        `totalQty` INT NULL,
+        PRIMARY KEY (`id`),
+        INDEX `po_id_idx` (`po_id` ASC) VISIBLE,
+        CONSTRAINT `po_id` FOREIGN KEY (`po_id`) REFERENCES `freight_tracking_app`.`purchase_order` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
     );
 
 CREATE TABLE

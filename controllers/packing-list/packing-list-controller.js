@@ -844,42 +844,77 @@ exports.getPackingListById = async (req, res) => {
 };
 
 exports.uploadPackingListFile = async (req, res) => {
-  let excelPath;
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded",
-      });
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "No file uploaded",
+            });
+        }
+
+        // Directory: /uploads/packing-list
+        const uploadDir = path.join(
+            process.cwd(),
+            "uploads",
+            "packing-list"
+        );
+
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Generate filename: packing-list-DDMMYYYY-HHMM.xlsx
+        const d = new Date();
+
+        const dateStr = [
+            String(d.getDate()).padStart(2, "0"),
+            String(d.getMonth() + 1).padStart(2, "0"),
+            d.getFullYear(),
+        ].join("");
+
+        const timeStr = [
+            String(d.getHours()).padStart(2, "0"),
+            String(d.getMinutes()).padStart(2, "0"),
+        ].join("");
+
+        const fileName = `packing-list-${dateStr}-${timeStr}.xlsx`;
+
+        const filePath = path.join(uploadDir, fileName);
+
+        // Save uploaded file
+        fs.writeFileSync(filePath, req.file.buffer);
+
+        // Parse the uploaded file
+        const {
+            rowCount,
+            rowsFailedToParse,
+            totals,
+            items,
+            parseErrors,
+        } = await convertPackingListPdfToExcelAndJson(
+            req.file.buffer,
+            filePath
+        );
+
+        return res.status(200).json({
+            success: true,
+            filename: fileName,
+            filePath: `/uploads/packing-list/${fileName}`,
+            rowCount,
+            rowsFailedToParse,
+            totals,
+            items,
+            parseErrors,
+        });
+    } catch (err) {
+        console.error("UPLOAD PACKING LIST ERROR:", err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
     }
-
-    // Write the generated .xlsx to a temp path (swap for S3/etc. if you want to keep it)
-    excelPath = path.join(os.tmpdir(), `packing-list-${Date.now()}.xlsx`);
-
-    const { rowCount, rowsFailedToParse, totals, items, parseErrors } =
-      await convertPackingListPdfToExcelAndJson(req.file.buffer, excelPath);
-
-    return res.status(200).json({
-      success: true,
-      filename: req.file.originalname,
-      rowCount,
-      rowsFailedToParse,
-      totals,
-      items,
-      parseErrors,
-    });
-  } catch (err) {
-    console.error("UPLOAD PACKING LIST ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  } finally {
-    // Clean up the generated Excel file the same way the old code deleted the PDF
-    if (excelPath) {
-      fs.unlink(excelPath, () => {});
-    }
-  }
 };
 
 exports.updatePackingListStatus = async (req, res) => {
