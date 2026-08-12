@@ -35,6 +35,11 @@ exports.uploadPurchaseOrderFile = async (req, res) => {
     ].join("");
     const fileName = `po-${dateStr}-${timeStr}.xlsx`;
 
+    const filePath = path.join(uploadDir, fileName);
+
+    // Save uploaded PDF to /tmp so the parser has a real path to write to
+    fs.writeFileSync(filePath, req.file.buffer);
+
     // Parse directly from the in-memory buffer — no disk write needed
     const {
       issuer,

@@ -844,51 +844,60 @@ exports.getPackingListById = async (req, res) => {
 };
 
 exports.uploadPackingListFile = async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "No file uploaded",
-            });
-        }
-
-        const d = new Date();
-        const dateStr = [
-            String(d.getDate()).padStart(2, "0"),
-            String(d.getMonth() + 1).padStart(2, "0"),
-            d.getFullYear(),
-        ].join("");
-        const timeStr = [
-            String(d.getHours()).padStart(2, "0"),
-            String(d.getMinutes()).padStart(2, "0"),
-        ].join("");
-        const fileName = `packing-list-${dateStr}-${timeStr}.xlsx`;
-
-        // Parse directly from the in-memory buffer — no disk write needed
-        const {
-            rowCount,
-            rowsFailedToParse,
-            totals,
-            items,
-            parseErrors,
-        } = await convertPackingListPdfToExcelAndJson(req.file.buffer);
-
-        return res.status(200).json({
-            success: true,
-            filename: fileName,
-            rowCount,
-            rowsFailedToParse,
-            totals,
-            items,
-            parseErrors,
-        });
-    } catch (err) {
-        console.error("UPLOAD PACKING LIST ERROR:", err);
-        return res.status(500).json({
-            success: false,
-            message: err.message,
-        });
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded",
+      });
     }
+
+    // Directory: <tmp>/uploads/packing-list  (only writable dir on Vercel)
+    const uploadDir = path.join(os.tmpdir(), "uploads", "packing-list");
+
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const d = new Date();
+    const dateStr = [
+      String(d.getDate()).padStart(2, "0"),
+      String(d.getMonth() + 1).padStart(2, "0"),
+      d.getFullYear(),
+    ].join("");
+    const timeStr = [
+      String(d.getHours()).padStart(2, "0"),
+      String(d.getMinutes()).padStart(2, "0"),
+    ].join("");
+    const fileName = `packing-list-${dateStr}-${timeStr}.xlsx`;
+
+    const filePath = path.join(uploadDir, fileName);
+
+    // Save uploaded PDF to /tmp so the parser has a real path to write to
+    fs.writeFileSync(filePath, req.file.buffer);
+
+    const { rowCount, rowsFailedToParse, totals, items, parseErrors } =
+      await convertPackingListPdfToExcelAndJson(req.file.buffer, filePath);
+
+    return res.status(200).json({
+      success: true,
+      filename: fileName,
+      // NOTE: this is no longer a real servable URL on Vercel — see below
+      filePath: `/uploads/packing-list/${fileName}`,
+      rowCount,
+      rowsFailedToParse,
+      totals,
+      items,
+      parseErrors,
+    });
+  } catch (err) {
+    console.error("UPLOAD PACKING LIST ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
 };
 
 exports.updatePackingListStatus = async (req, res) => {
