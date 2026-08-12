@@ -852,55 +852,30 @@ exports.uploadPackingListFile = async (req, res) => {
             });
         }
 
-        // Directory: /uploads/packing-list
-        const uploadDir = path.join(
-            process.cwd(),
-            "uploads",
-            "packing-list"
-        );
-
-        // Create directory if it doesn't exist
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-
-        // Generate filename: packing-list-DDMMYYYY-HHMM.xlsx
         const d = new Date();
-
         const dateStr = [
             String(d.getDate()).padStart(2, "0"),
             String(d.getMonth() + 1).padStart(2, "0"),
             d.getFullYear(),
         ].join("");
-
         const timeStr = [
             String(d.getHours()).padStart(2, "0"),
             String(d.getMinutes()).padStart(2, "0"),
         ].join("");
-
         const fileName = `packing-list-${dateStr}-${timeStr}.xlsx`;
 
-        const filePath = path.join(uploadDir, fileName);
-
-        // Save uploaded file
-        fs.writeFileSync(filePath, req.file.buffer);
-
-        // Parse the uploaded file
+        // Parse directly from the in-memory buffer — no disk write needed
         const {
             rowCount,
             rowsFailedToParse,
             totals,
             items,
             parseErrors,
-        } = await convertPackingListPdfToExcelAndJson(
-            req.file.buffer,
-            filePath
-        );
+        } = await convertPackingListPdfToExcelAndJson(req.file.buffer);
 
         return res.status(200).json({
             success: true,
             filename: fileName,
-            filePath: `/uploads/packing-list/${fileName}`,
             rowCount,
             rowsFailedToParse,
             totals,
@@ -909,7 +884,6 @@ exports.uploadPackingListFile = async (req, res) => {
         });
     } catch (err) {
         console.error("UPLOAD PACKING LIST ERROR:", err);
-
         return res.status(500).json({
             success: false,
             message: err.message,

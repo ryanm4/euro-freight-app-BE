@@ -23,35 +23,19 @@ exports.uploadPurchaseOrderFile = async (req, res) => {
       });
     }
 
-    // Directory: /upload/po
-    const uploadDir = path.join(process.cwd(), "uploads", "po");
-
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    // Keep the original filename
-    // const fileName = req.file.originalname;
     const d = new Date();
     const dateStr = [
       String(d.getDate()).padStart(2, "0"),
       String(d.getMonth() + 1).padStart(2, "0"),
       d.getFullYear(),
     ].join("");
-
     const timeStr = [
       String(d.getHours()).padStart(2, "0"),
       String(d.getMinutes()).padStart(2, "0"),
     ].join("");
-
     const fileName = `po-${dateStr}-${timeStr}.xlsx`;
-    const filePath = path.join(uploadDir, fileName);
 
-    // Save uploaded file
-    fs.writeFileSync(filePath, req.file.buffer);
-
-    // Parse the uploaded Excel file
+    // Parse directly from the in-memory buffer — no disk write needed
     const {
       issuer,
       poNumber,
@@ -61,12 +45,11 @@ exports.uploadPurchaseOrderFile = async (req, res) => {
       items,
       totals,
       comments,
-    } = await parsePurchaseOrderExcel(req.file.buffer, filePath);
+    } = await parsePurchaseOrderExcel(req.file.buffer);
 
     return res.status(200).json({
       success: true,
       filename: fileName,
-      filePath: `/upload/po/${fileName}`,
       poNumber,
       dateIssued,
       issuer,
@@ -79,7 +62,6 @@ exports.uploadPurchaseOrderFile = async (req, res) => {
     });
   } catch (err) {
     console.error("UPLOAD PURCHASE ORDER ERROR:", err);
-
     return res.status(500).json({
       success: false,
       message: err.message,
