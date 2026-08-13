@@ -157,6 +157,7 @@ exports.createHBL = async (req, res) => {
       UPDATE freight_tracking_app.goods_receive_notes
       SET
         bill_id = ?,
+        status = 'HBL open',
         updated_by = ?,
         updated_on = NOW()
       WHERE id IN (${placeholders})
@@ -171,6 +172,23 @@ exports.createHBL = async (req, res) => {
     if (updateResult.affectedRows === 0) {
       throw new Error("No GRNs updated. Check grn_ids");
     }
+
+    // =====================
+    // Update Packing Lists (status -> HBL open)
+    // =====================
+    const updatePackingListQuery = `
+      UPDATE freight_tracking_app.packing_list
+      SET
+        status = 'HBL open',
+        updated_by = ?,
+        updated_on = NOW()
+      WHERE grn_id IN (${placeholders})
+    `;
+
+    const [plUpdateResult] = await connection.execute(updatePackingListQuery, [
+      created_by || null,
+      ...grn_ids,
+    ]);
 
     // =====================
     // Update Purchase Orders

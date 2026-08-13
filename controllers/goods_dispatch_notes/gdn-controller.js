@@ -195,11 +195,12 @@ exports.createGDN = async (req, res) => {
           UPDATE freight_tracking_app.packing_list
           SET
             gdn_id = ?,
+            status = ?,
             updated_by = ?,
             updated_on = NOW()
           WHERE id IN (?)
         `,
-        [gdnId, created_by, packing_list_ids],
+        [gdnId, "GDN OPEN", created_by, packing_list_ids],
       );
     }
 

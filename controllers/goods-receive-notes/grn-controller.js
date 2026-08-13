@@ -207,11 +207,12 @@ exports.createGoodsReceiveNote = async (req, res) => {
       UPDATE freight_tracking_app.packing_list
       SET
         grn_id = ?,
+        status = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id IN (?)
       `,
-      [grnId, created_by, uniquePackingListIds],
+      [grnId, "GRN OPEN", created_by, uniquePackingListIds],
     );
 
     // ---------------------------------------------------------

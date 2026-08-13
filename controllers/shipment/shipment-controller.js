@@ -7,12 +7,7 @@ exports.createShipment = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const {
-      vessel_name,
-      status,
-      created_by,
-      hbl_ids
-    } = req.body;
+    const { vessel_name, status, created_by, hbl_ids } = req.body;
 
     // Insert shipment
     const shipmentQuery = `
@@ -25,36 +20,53 @@ exports.createShipment = async (req, res) => {
       VALUES (?, ?, ?, NOW())
     `;
 
-    const [shipmentResult] = await connection.query(
-      shipmentQuery,
-      [
-        vessel_name,
-        status,
-        created_by
-      ]
-    );
+    const [shipmentResult] = await connection.query(shipmentQuery, [
+      vessel_name,
+      status,
+      created_by,
+    ]);
 
     const shipmentId = shipmentResult.insertId;
 
     // Update shipment_id in hbl_hawb_tbl
     if (Array.isArray(hbl_ids) && hbl_ids.length > 0) {
       const updateQuery = `
-        UPDATE freight_tracking_app.hbl_hawb_tbl
+    UPDATE freight_tracking_app.hbl_hawb_tbl
+    SET
+      shipment_id = ?,
+      status = ?,
+      updated_by = ?,
+      updated_on = NOW()
+    WHERE id IN (?)
+  `;
+
+      await connection.query(updateQuery, [
+        shipmentId,
+        "SHIPMENT OPEN",
+        created_by,
+        hbl_ids,
+      ]);
+
+      // =====================
+      // Update Packing Lists (status -> Shipment Open)
+      // Chain: hbl_hawb_tbl <- goods_receive_notes.bill_id <- packing_list.grn_id
+      // =====================
+      const updatePackingListQuery = `
+        UPDATE freight_tracking_app.packing_list pl
+        INNER JOIN freight_tracking_app.goods_receive_notes grn
+          ON pl.grn_id = grn.id
         SET
-          shipment_id = ?,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE id IN (?)
+          pl.status = ?,
+          pl.updated_by = ?,
+          pl.updated_on = NOW()
+        WHERE grn.bill_id IN (?)
       `;
 
-      await connection.query(
-        updateQuery,
-        [
-          shipmentId,
-          created_by,
-          hbl_ids
-        ]
-      );
+      await connection.query(updatePackingListQuery, [
+        "SHIPMENT OPEN",
+        created_by,
+        hbl_ids,
+      ]);
     }
 
     await connection.commit();
@@ -66,17 +78,16 @@ exports.createShipment = async (req, res) => {
         shipment_id: shipmentId,
         vessel_name,
         status,
-        hbl_ids
-      }
+        hbl_ids,
+      },
     });
-
   } catch (error) {
     await connection.rollback();
 
     res.status(500).json({
       success: false,
       message: "Error creating shipment",
-      error: error.message
+      error: error.message,
     });
   } finally {
     connection.release();
@@ -92,18 +103,13 @@ exports.updateShipment = async (req, res) => {
 
     const shipmentId = req.params.id;
 
-    const {
-      vessel_name,
-      status,
-      updated_by,
-      hbl_ids
-    } = req.body;
+    const { vessel_name, status, updated_by, hbl_ids } = req.body;
 
     // Check whether shipment exists
     const [existingShipment] = await connection.query(
       `SELECT * FROM freight_tracking_app.shipments
        WHERE id = ?`,
-      [shipmentId]
+      [shipmentId],
     );
 
     if (existingShipment.length === 0) {
@@ -111,7 +117,7 @@ exports.updateShipment = async (req, res) => {
 
       return res.status(404).json({
         success: false,
-        message: "Shipment not found"
+        message: "Shipment not found",
       });
     }
 
@@ -126,12 +132,7 @@ exports.updateShipment = async (req, res) => {
         updated_on = NOW()
       WHERE id = ?
       `,
-      [
-        vessel_name,
-        status,
-        updated_by,
-        shipmentId
-      ]
+      [vessel_name, status, updated_by, shipmentId],
     );
 
     // Remove shipment reference from previously linked HBLs
@@ -144,10 +145,7 @@ exports.updateShipment = async (req, res) => {
         updated_on = NOW()
       WHERE shipment_id = ?
       `,
-      [
-        updated_by,
-        shipmentId
-      ]
+      [updated_by, shipmentId],
     );
 
     // Assign shipment to the new HBL list
@@ -161,11 +159,7 @@ exports.updateShipment = async (req, res) => {
           updated_on = NOW()
         WHERE id IN (?)
         `,
-        [
-          shipmentId,
-          updated_by,
-          hbl_ids
-        ]
+        [shipmentId, updated_by, hbl_ids],
       );
     }
 
@@ -178,17 +172,16 @@ exports.updateShipment = async (req, res) => {
         shipment_id: shipmentId,
         vessel_name,
         status,
-        hbl_ids
-      }
+        hbl_ids,
+      },
     });
-
   } catch (error) {
     await connection.rollback();
 
     res.status(500).json({
       success: false,
       message: "Error updating shipment",
-      error: error.message
+      error: error.message,
     });
   } finally {
     connection.release();
@@ -224,24 +217,21 @@ exports.getAllShipments = async (req, res) => {
 
     const [rows] = await db.query(query);
 
-    const shipments = rows.map(row => ({
+    const shipments = rows.map((row) => ({
       ...row,
-      hbl_ids: row.hbl_ids
-        ? row.hbl_ids.split(",").map(Number)
-        : []
+      hbl_ids: row.hbl_ids ? row.hbl_ids.split(",").map(Number) : [],
     }));
 
     res.status(200).json({
       success: true,
       count: shipments.length,
-      data: shipments
+      data: shipments,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error fetching shipments",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -265,13 +255,13 @@ exports.getShipmentById = async (req, res) => {
       FROM freight_tracking_app.shipments
       WHERE id = ?
       `,
-      [shipmentId]
+      [shipmentId],
     );
 
     if (shipmentRows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Shipment not found"
+        message: "Shipment not found",
       });
     }
 
@@ -319,22 +309,21 @@ exports.getShipmentById = async (req, res) => {
       WHERE h.shipment_id = ?
       ORDER BY h.id
       `,
-      [shipmentId]
+      [shipmentId],
     );
 
     res.status(200).json({
       success: true,
       data: {
         ...shipmentRows[0],
-        hbl_hawb_details: hblRows
-      }
+        hbl_hawb_details: hblRows,
+      },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error fetching shipment",
-      error: error.message
+      error: error.message,
     });
   }
 };
