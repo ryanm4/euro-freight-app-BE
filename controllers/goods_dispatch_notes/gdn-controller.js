@@ -292,6 +292,25 @@ exports.updateGDN = async (req, res) => {
       height_cm,
     } = req.body || {};
 
+    // ---------------------------------------------------------
+    // Sanitize empty-string values for numeric/nullable columns
+    // ---------------------------------------------------------
+    const toNullIfEmpty = (val) =>
+      val === "" || val === undefined ? null : val;
+
+    const gdn_grn_ref_clean = toNullIfEmpty(gdn_grn_ref);
+    const driver_id_clean = toNullIfEmpty(driver_id);
+    const wharf_staff_id_clean = toNullIfEmpty(wharf_staff_id);
+    const cartoons_clean = toNullIfEmpty(cartoons);
+    const actual_cartoons_clean = toNullIfEmpty(actual_cartoons);
+    const gross_weight_clean = toNullIfEmpty(gross_weight);
+    const actual_gross_weight_clean = toNullIfEmpty(actual_gross_weight);
+    const gross_volume_clean = toNullIfEmpty(gross_volume);
+    const actual_gross_volume_clean = toNullIfEmpty(actual_gross_volume);
+    const length_cm_clean = toNullIfEmpty(length_cm);
+    const width_cm_clean = toNullIfEmpty(width_cm);
+    const height_cm_clean = toNullIfEmpty(height_cm);
+
     const [existing] = await connection.query(
       `SELECT id 
        FROM freight_tracking_app.goods_deliver_notes
@@ -351,16 +370,16 @@ exports.updateGDN = async (req, res) => {
       manufacture_id,
       forwarder_id,
       date,
-      cartoons,
-      actual_cartoons,
-      gross_weight,
-      actual_gross_weight,
-      gross_volume,
-      actual_gross_volume,
+      cartoons_clean,
+      actual_cartoons_clean,
+      gross_weight_clean,
+      actual_gross_weight_clean,
+      gross_volume_clean,
+      actual_gross_volume_clean,
       status,
-      gdn_grn_ref,
+      gdn_grn_ref_clean,
       vehicle_no,
-      driver_id,
+      driver_id_clean,
 
       dispatch_location,
       transport_mode,
@@ -369,10 +388,10 @@ exports.updateGDN = async (req, res) => {
       primary_seal_no,
       secondary_seal_no,
       custom_doc_status,
-      wharf_staff_id,
-      length_cm,
-      width_cm,
-      height_cm,
+      wharf_staff_id_clean,
+      length_cm_clean,
+      width_cm_clean,
+      height_cm_clean,
       driver_contact_no,
       wharf_contact_no,
       updated_by,
