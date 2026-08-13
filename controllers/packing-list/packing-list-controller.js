@@ -667,6 +667,7 @@ exports.getPackingListById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Get packing list
     const [rows] = await db.query(
       `
       SELECT 
@@ -687,8 +688,8 @@ exports.getPackingListById = async (req, res) => {
         pl.total_net_weight_kg,
         pl.total_cbm,
         pl.total_volume,
-        pl.shipping_mode AS shipping_mode,
-        pl.status AS status,
+        pl.shipping_mode,
+        pl.status,
         pl.created_by,
         pl.created_on,
         pl.updated_by,
@@ -697,19 +698,19 @@ exports.getPackingListById = async (req, res) => {
       FROM freight_tracking_app.packing_list pl
 
       LEFT JOIN freight_tracking_app.clients c
-          ON c.id = CAST(pl.client_id AS UNSIGNED)
+        ON c.id = CAST(pl.client_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients m
-          ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
+        ON m.id = CAST(pl.manufacturer_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.clients f
-          ON f.id = CAST(pl.forwarder_id AS UNSIGNED)
+        ON f.id = CAST(pl.forwarder_id AS UNSIGNED)
 
       LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
-          ON gdn.id = pl.gdn_id
+        ON gdn.id = pl.gdn_id
 
       WHERE pl.id = ?
-    `,
+      `,
       [id],
     );
 
@@ -720,129 +721,117 @@ exports.getPackingListById = async (req, res) => {
       });
     }
 
-    // Line items live in their own table (a full join here would fan out
-    // against every purchase_order row above), so fetch them separately.
+    // Get packing list items
     const [items] = await db.query(
       `
-        SELECT 
-          id AS item_id,
-          poNumber AS po_number,
-          sku,
-          itemName AS item_name,
-          size,
-          unitCost,
-          quantity,
-          ctn,
-          grossWeightKg,
-          netWeightKg,
-          ctnDemi,
-          cbm,
-          ctnNo,
-          color,
-          co,
-          created_by,
-          created_at,
-          updated_by,
-          updated_on
-        FROM freight_tracking_app.packing_list_items
-        WHERE shipment_id = ?
-        ORDER BY id ASC
+      SELECT 
+        id AS item_id,
+        poNumber AS po_number,
+        sku,
+        itemName AS item_name,
+        size,
+        unitCost,
+        quantity,
+        ctn,
+        grossWeightKg,
+        netWeightKg,
+        ctnDemi,
+        cbm,
+        ctnNo,
+        color,
+        co,
+        created_by,
+        created_at,
+        updated_by,
+        updated_on
+
+      FROM freight_tracking_app.packing_list_items
+
+      WHERE shipment_id = ?
+
+      ORDER BY id ASC
       `,
       [id],
     );
 
-    // purchase_orders is sourced from the distinct po_number values on the
-    // items themselves (the source of truth for what's actually in this
-    // packing list), then enriched with metadata from purchase_order where
-    // a matching row exists. This avoids silently dropping POs whose
-    // packing_list_id link never got set (see createPackingList's
-    // best-effort PO linking).
+    // Get distinct PO numbers from packing list items
     const poNumbers = [
-      ...new Set(items.map((i) => i.po_number).filter(Boolean)),
+      ...new Set(
+        items
+          .map((item) => item.po_number)
+          .filter((po) => po !== null && po !== undefined && po !== ""),
+      ),
     ];
 
-    // Sum item quantities per po_number
+    // Calculate quantity per PO
     const poQuantityMap = new Map();
-    items.forEach((i) => {
-      if (!i.po_number) return;
-      const current = poQuantityMap.get(i.po_number) || 0;
-      poQuantityMap.set(i.po_number, current + Number(i.quantity || 0));
+
+    items.forEach((item) => {
+      if (!item.po_number) return;
+
+      const currentQuantity = poQuantityMap.get(item.po_number) || 0;
+
+      poQuantityMap.set(
+        item.po_number,
+        currentQuantity + Number(item.quantity || 0),
+      );
     });
 
-    let purchaseOrders = poNumbers.map((po_number) => ({
+    /*
+     * Build purchase_orders directly from packing_list_items.
+     *
+     * We do NOT query purchase_order here because the current
+     * purchase_order table does not contain po_number.
+     */
+    const purchaseOrders = poNumbers.map((po_number) => ({
       po_number,
-      po_id: null,
       po_quantity: poQuantityMap.get(po_number) ?? null,
-      shipping_mode: null,
-      final_destination: null,
-      status: null,
     }));
-
-    if (poNumbers.length > 0) {
-      const [poRows] = await db.query(
-        `
-          SELECT 
-            id AS po_id,
-            po_number,
-            po_quantity,
-            shipping_mode,
-            final_destination,
-            status
-          FROM freight_tracking_app.purchase_order
-          WHERE po_number IN (?)
-        `,
-        [poNumbers],
-      );
-
-      const poMap = new Map(poRows.map((p) => [p.po_number, p]));
-
-      purchaseOrders = poNumbers.map((po_number) => {
-        const match = poMap.get(po_number);
-        return {
-          po_number,
-          po_id: match?.po_id ?? null,
-          po_quantity: poQuantityMap.get(po_number) ?? null,
-          // shipping_mode: match?.shipping_mode ?? null,
-          // final_destination: match?.final_destination ?? null,
-          // status: match?.status ?? null,
-        };
-      });
-    }
 
     const result = {
       packing_list_id: rows[0].packing_list_id,
       packing_list_no: rows[0].packing_list_no,
+
       client_name: rows[0].client_name,
       manufacturer_name: rows[0].manufacturer_name,
       forwarder_name: rows[0].forwarder_name,
+
       gdn_id: rows[0].gdn_id,
       gdn_no: rows[0].gdn_no,
+
       grn_id: rows[0].grn_id,
+
       ship_to: rows[0].ship_to,
       date: rows[0].date,
       document_date: rows[0].document_date,
+
       total_quantity: rows[0].total_quantity,
       total_cartons: rows[0].total_cartons,
       total_gross_weight_kg: rows[0].total_gross_weight_kg,
       total_net_weight_kg: rows[0].total_net_weight_kg,
       total_cbm: rows[0].total_cbm,
       total_volume: rows[0].total_volume,
+
       shipping_mode: rows[0].shipping_mode,
       status: rows[0].status,
+
       created_by: rows[0].created_by,
       created_on: rows[0].created_on,
       updated_by: rows[0].updated_by,
       updated_on: rows[0].updated_on,
+
       purchase_orders: purchaseOrders,
       items,
     };
 
-    res.json({
+    return res.json({
       success: true,
       data: result,
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("Error fetching packing list:", err);
+
+    return res.status(500).json({
       success: false,
       message: err.message,
     });
