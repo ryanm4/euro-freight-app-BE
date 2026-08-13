@@ -20,67 +20,99 @@ exports.createGoodsReceiveNote = async (req, res) => {
       packing_list_ids,
     } = req.body;
 
-    // Validate input
+    // ---------------------------------------------------------
+    // Validate packing list IDs
+    // ---------------------------------------------------------
     if (
       !packing_list_ids ||
       !Array.isArray(packing_list_ids) ||
       packing_list_ids.length === 0
     ) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
         message: "packing_list_ids is required",
       });
     }
 
+    // Remove duplicate IDs
+    const uniquePackingListIds = [...new Set(packing_list_ids)];
+
+    // ---------------------------------------------------------
+    // Validate quantity
+    // ---------------------------------------------------------
     const quantityNum = Number(quantity);
 
     if (isNaN(quantityNum)) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
         message: "Invalid GRN quantity",
       });
     }
 
+    // ---------------------------------------------------------
     // Fetch packing lists
+    // ---------------------------------------------------------
     const [packingLists] = await connection.query(
       `
-                SELECT
-                    id,
-                    total_quantity,
-                    grn_id
-                FROM freight_tracking_app.packing_list
-                WHERE id IN (?)
+      SELECT
+        id,
+        total_quantity,
+        grn_id,
+        gdn_id
+      FROM freight_tracking_app.packing_list
+      WHERE id IN (?)
       `,
-      [packing_list_ids],
+      [uniquePackingListIds],
     );
 
-    // Validate existence
-    if (packingLists.length !== packing_list_ids.length) {
+    // ---------------------------------------------------------
+    // Validate packing list existence
+    // ---------------------------------------------------------
+    if (packingLists.length !== uniquePackingListIds.length) {
       await connection.rollback();
+
+      const foundIds = packingLists.map((pl) => pl.id);
+
+      const missingIds = uniquePackingListIds.filter(
+        (id) => !foundIds.includes(Number(id)),
+      );
+
       return res.status(404).json({
         success: false,
         message: "One or more packing lists not found",
+        missing_packing_list_ids: missingIds,
       });
     }
 
-    // Prevent already assigned packing lists
+    // ---------------------------------------------------------
+    // Prevent packing lists already assigned to a GRN
+    // ---------------------------------------------------------
     const alreadyAssigned = packingLists.filter((pl) => pl.grn_id !== null);
 
     if (alreadyAssigned.length > 0) {
       await connection.rollback();
+
       return res.status(400).json({
         success: false,
         message: "Some packing lists already assigned to a GRN",
-        data: alreadyAssigned.map((i) => i.id),
+        data: alreadyAssigned.map((item) => item.id),
       });
     }
 
-    // Calculate total quantity
+    // ---------------------------------------------------------
+    // Calculate total packing list quantity
+    // ---------------------------------------------------------
     const totalPackingQty = packingLists.reduce((sum, item) => {
       return sum + (Number(item.total_quantity) || 0);
     }, 0);
 
-    // STRICT EQUALITY CHECK
+    // ---------------------------------------------------------
+    // Strict quantity equality check
+    // ---------------------------------------------------------
     if (quantityNum !== totalPackingQty) {
       await connection.rollback();
 
@@ -92,7 +124,47 @@ exports.createGoodsReceiveNote = async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------
+    // Get related GDN IDs
+    // ---------------------------------------------------------
+    const gdnIds = [
+      ...new Set(
+        packingLists
+          .map((pl) => pl.gdn_id)
+          .filter((id) => id !== null && id !== undefined),
+      ),
+    ];
+
+    // ---------------------------------------------------------
+    // Validate related GDNs exist
+    // ---------------------------------------------------------
+    if (gdnIds.length > 0) {
+      const [gdnRows] = await connection.query(
+        `
+        SELECT
+          id,
+          gdn_no,
+          gdn_grn_ref
+        FROM freight_tracking_app.goods_deliver_notes
+        WHERE id IN (?)
+        `,
+        [gdnIds],
+      );
+
+      if (gdnRows.length !== gdnIds.length) {
+        await connection.rollback();
+
+        return res.status(404).json({
+          success: false,
+          message: "One or more related GDNs were not found",
+          gdn_ids: gdnIds,
+        });
+      }
+    }
+
+    // ---------------------------------------------------------
     // Insert GRN
+    // ---------------------------------------------------------
     const [result] = await connection.query(
       `
       INSERT INTO freight_tracking_app.goods_receive_notes
@@ -127,7 +199,9 @@ exports.createGoodsReceiveNote = async (req, res) => {
 
     const grnId = result.insertId;
 
-    // Update packing lists
+    // ---------------------------------------------------------
+    // Update packing lists with GRN ID
+    // ---------------------------------------------------------
     await connection.query(
       `
       UPDATE freight_tracking_app.packing_list
@@ -137,9 +211,30 @@ exports.createGoodsReceiveNote = async (req, res) => {
         updated_on = NOW()
       WHERE id IN (?)
       `,
-      [grnId, created_by, packing_list_ids],
+      [grnId, created_by, uniquePackingListIds],
     );
 
+    // ---------------------------------------------------------
+    // Update related GDNs with GRN ID
+    // gdn_grn_ref stores the newly created GRN ID
+    // ---------------------------------------------------------
+    if (gdnIds.length > 0) {
+      await connection.query(
+        `
+        UPDATE freight_tracking_app.goods_deliver_notes
+        SET
+          gdn_grn_ref = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id IN (?)
+        `,
+        [grnId, created_by, gdnIds],
+      );
+    }
+
+    // ---------------------------------------------------------
+    // Commit transaction
+    // ---------------------------------------------------------
     await connection.commit();
 
     return res.status(201).json({
@@ -148,11 +243,14 @@ exports.createGoodsReceiveNote = async (req, res) => {
       data: {
         grn_id: grnId,
         quantity: quantityNum,
-        packing_list_ids,
+        packing_list_ids: uniquePackingListIds,
+        gdn_ids: gdnIds,
       },
     });
   } catch (error) {
     await connection.rollback();
+
+    console.error("Error creating GRN:", error);
 
     return res.status(500).json({
       success: false,
