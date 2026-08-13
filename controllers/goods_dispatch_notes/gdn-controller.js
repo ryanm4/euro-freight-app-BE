@@ -55,6 +55,22 @@ exports.createGDN = async (req, res) => {
     }
 
     // ---------------------------------------------------------
+    // 1b. Sanitize empty-string values for numeric/nullable columns
+    // ---------------------------------------------------------
+    const toNullIfEmpty = (val) =>
+      val === "" || val === undefined ? null : val;
+
+    const gdn_grn_ref_clean = toNullIfEmpty(gdn_grn_ref);
+    const driver_id_clean = toNullIfEmpty(driver_id);
+    const wharf_staff_id_clean = toNullIfEmpty(wharf_staff_id);
+    const cartoons_clean = toNullIfEmpty(cartoons);
+    const actual_cartoons_clean = toNullIfEmpty(actual_cartoons);
+    const gross_weight_clean = toNullIfEmpty(gross_weight);
+    const actual_gross_weight_clean = toNullIfEmpty(actual_gross_weight);
+    const gross_volume_clean = toNullIfEmpty(gross_volume);
+    const actual_gross_volume_clean = toNullIfEmpty(actual_gross_volume);
+
+    // ---------------------------------------------------------
     // 2. Insert GDN
     // ---------------------------------------------------------
     const insertQuery = `
@@ -95,16 +111,16 @@ exports.createGDN = async (req, res) => {
       manufacture_id,
       forwarder_id,
       date,
-      cartoons,
-      actual_cartoons,
-      gross_weight,
-      actual_gross_weight,
-      gross_volume,
-      actual_gross_volume,
+      cartoons_clean,
+      actual_cartoons_clean,
+      gross_weight_clean,
+      actual_gross_weight_clean,
+      gross_volume_clean,
+      actual_gross_volume_clean,
       status,
-      gdn_grn_ref,
+      gdn_grn_ref_clean,
       vehicle_no,
-      driver_id,
+      driver_id_clean,
       created_by,
 
       dispatch_location,
@@ -114,7 +130,7 @@ exports.createGDN = async (req, res) => {
       primary_seal_no,
       secondary_seal_no,
       custom_doc_status,
-      wharf_staff_id,
+      wharf_staff_id_clean,
       driver_contact_no,
       wharf_contact_no,
     ]);
@@ -191,20 +207,20 @@ exports.createGDN = async (req, res) => {
     // ---------------------------------------------------------
     // 6. Update Purchase Orders
     // ---------------------------------------------------------
-    await connection.query(
-      `
-        UPDATE freight_tracking_app.purchase_order po
-        INNER JOIN freight_tracking_app.packing_list pl
-          ON po.packing_list_id = pl.id
-        SET
-          po.cargo_dispatch_date = ?,
-          po.status = ?,
-          po.updated_by = ?,
-          po.updated_on = NOW()
-        WHERE pl.gdn_id = ?
-      `,
-      [date, "GDN Created", created_by, gdnId],
-    );
+    // await connection.query(
+    //   `
+    //     UPDATE freight_tracking_app.purchase_order po
+    //     INNER JOIN freight_tracking_app.packing_list pl
+    //       ON po.packing_list_id = pl.id
+    //     SET
+    //       po.cargo_dispatch_date = ?,
+    //       po.status = ?,
+    //       po.updated_by = ?,
+    //       po.updated_on = NOW()
+    //     WHERE pl.gdn_id = ?
+    //   `,
+    //   [date, "GDN Created", created_by, gdnId],
+    // );
 
     // ---------------------------------------------------------
     // 7. Commit Transaction
