@@ -200,7 +200,7 @@ exports.createGDN = async (req, res) => {
             updated_on = NOW()
           WHERE id IN (?)
         `,
-        [gdnId, "GDN OPEN", created_by, packing_list_ids],
+        [gdnId, "GDN_OPEN", created_by, packing_list_ids],
       );
     }
 

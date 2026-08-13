@@ -42,7 +42,7 @@ exports.createShipment = async (req, res) => {
 
       await connection.query(updateQuery, [
         shipmentId,
-        "SHIPMENT OPEN",
+        "SHIPMENT_OPEN",
         created_by,
         hbl_ids,
       ]);
@@ -63,7 +63,7 @@ exports.createShipment = async (req, res) => {
       `;
 
       await connection.query(updatePackingListQuery, [
-        "SHIPMENT OPEN",
+        "SHIPMENT_OPEN",
         created_by,
         hbl_ids,
       ]);
