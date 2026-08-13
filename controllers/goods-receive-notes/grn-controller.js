@@ -225,6 +225,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
         UPDATE freight_tracking_app.goods_deliver_notes
         SET
           gdn_grn_ref = ?,
+          status = ?,
           updated_by = ?,
           updated_on = NOW()
         WHERE id IN (?)
