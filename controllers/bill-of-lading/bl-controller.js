@@ -157,7 +157,7 @@ exports.createHBL = async (req, res) => {
       UPDATE freight_tracking_app.goods_receive_notes
       SET
         bill_id = ?,
-        status = 'HBL open',
+        status = 'HBL OPEN',
         updated_by = ?,
         updated_on = NOW()
       WHERE id IN (${placeholders})
@@ -179,7 +179,7 @@ exports.createHBL = async (req, res) => {
     const updatePackingListQuery = `
       UPDATE freight_tracking_app.packing_list
       SET
-        status = 'HBL open',
+        status = 'HBL OPEN',
         updated_by = ?,
         updated_on = NOW()
       WHERE grn_id IN (${placeholders})
