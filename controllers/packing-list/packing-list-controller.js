@@ -170,14 +170,17 @@ exports.createPackingList = async (req, res) => {
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, NOW()
+      )
     `;
 
     const [packingResult] = await connection.query(insertPackingListQuery, [
-      client_id,
+      client_id || null,
       manufacturer_id || null,
       forwarder_id || null,
-      date,
+      date || null,
       gdn_id || null,
       grn_id || null,
       totals.totalQuantity,
@@ -189,8 +192,9 @@ exports.createPackingList = async (req, res) => {
       totals.totalCbm,
       total_volume || null,
       shipping_mode || null,
+      file_url || null,
       status || null,
-      created_by,
+      created_by || null,
     ]);
 
     const packingListId = packingResult.insertId;
