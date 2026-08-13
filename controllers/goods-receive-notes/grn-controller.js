@@ -229,7 +229,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
           updated_on = NOW()
         WHERE id IN (?)
         `,
-        [grnId, created_by, gdnIds],
+        [grnId, "GRN_OPEN", created_by, gdnIds],
       );
     }
 
