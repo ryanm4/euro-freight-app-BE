@@ -181,7 +181,7 @@ exports.createHBL = async (req, res) => {
       INNER JOIN freight_tracking_app.packing_list pl
         ON po.packing_list_id = pl.id
       SET
-        po.hbl_no = ?,
+        po.hbl_nos = ?,
         po.updated_by = ?,
         po.updated_on = NOW()
       WHERE pl.grn_id IN (${placeholders})
