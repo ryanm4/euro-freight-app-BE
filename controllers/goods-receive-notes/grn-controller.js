@@ -18,6 +18,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
       comments,
       created_by,
       gdn_id,
+      measurements,
     } = req.body;
 
     // =========================================================
@@ -51,7 +52,74 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }
 
     // =========================================================
-    // 3. Get GDN
+    // 3. Validate Measurements
+    // =========================================================
+
+    if (measurements !== undefined && !Array.isArray(measurements)) {
+      await connection.rollback();
+
+      return res.status(400).json({
+        success: false,
+        message: "measurements must be an array",
+      });
+    }
+
+    const measurementList = Array.isArray(measurements) ? measurements : [];
+
+    // Validate each measurement before creating the GRN
+    for (let i = 0; i < measurementList.length; i++) {
+      const measurement = measurementList[i];
+
+      if (!measurement || typeof measurement !== "object") {
+        await connection.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message: `Invalid measurement at index ${i}`,
+        });
+      }
+
+      const {
+        length_cm,
+        width_cm,
+        height_cm,
+        packages,
+        total,
+        uom,
+        cbm,
+        volume,
+      } = measurement;
+
+      // Validate numeric fields only when provided
+      const numericFields = {
+        length_cm,
+        width_cm,
+        height_cm,
+        packages,
+        total,
+        cbm,
+        volume,
+      };
+
+      for (const [field, value] of Object.entries(numericFields)) {
+        if (
+          value !== null &&
+          value !== undefined &&
+          value !== "" &&
+          isNaN(Number(value))
+        ) {
+          await connection.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: `measurements[${i}].${field} must be a valid number`,
+          });
+        }
+      }
+    }
+
+    // =========================================================
+    // 4. Get GDN
     // =========================================================
 
     const [gdnRows] = await connection.query(
@@ -69,7 +137,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     );
 
     // =========================================================
-    // 4. Check GDN Exists
+    // 5. Check GDN Exists
     // =========================================================
 
     if (gdnRows.length === 0) {
@@ -85,7 +153,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     const gdn = gdnRows[0];
 
     // =========================================================
-    // 5. Check if GDN Already Has a GRN
+    // 6. Check if GDN Already Has a GRN
     // =========================================================
 
     if (
@@ -107,7 +175,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }
 
     // =========================================================
-    // 6. Get ALL Packing Lists for This GDN
+    // 7. Get ALL Packing Lists for This GDN
     // =========================================================
 
     const [packingLists] = await connection.query(
@@ -127,7 +195,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     );
 
     // =========================================================
-    // 7. Check Packing Lists Exist
+    // 8. Check Packing Lists Exist
     // =========================================================
 
     if (packingLists.length === 0) {
@@ -142,7 +210,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }
 
     // =========================================================
-    // 8. Check if Any Packing List Already Has GRN
+    // 9. Check if Any Packing List Already Has GRN
     // =========================================================
 
     const alreadyAssignedPackingLists = packingLists.filter(
@@ -169,7 +237,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }
 
     // =========================================================
-    // 9. Calculate Total Quantity from Packing Lists
+    // 10. Calculate Total Quantity from Packing Lists
     // =========================================================
 
     const totalPackingQty = packingLists.reduce((sum, pl) => {
@@ -177,7 +245,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }, 0);
 
     // =========================================================
-    // 10. Validate GRN Quantity
+    // 11. Validate GRN Quantity
     // =========================================================
 
     if (quantityNum !== totalPackingQty) {
@@ -203,10 +271,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     }
 
     // =========================================================
-    // 11. Create GRN
-    //
-    // GRN number/reference will be the AUTO_INCREMENT ID.
-    // We do NOT use grn_no because your table doesn't have it.
+    // 12. Create GRN
     // =========================================================
 
     const [grnResult] = await connection.query(
@@ -244,25 +309,78 @@ exports.createGoodsReceiveNote = async (req, res) => {
     const grnId = grnResult.insertId;
 
     // =========================================================
-    // 12. GRN Reference
-    //
-    // Since gdn_grn_ref is VARCHAR(45), store GRN ID as string.
-    //
-    // Example:
-    // GRN ID = 27
-    // gdn_grn_ref = "27"
+    // 13. GRN Reference
     // =========================================================
 
     const grnRef = String(grnId);
 
     // =========================================================
-    // 13. Get Packing List IDs
+    // 14. Insert GRN Measurements
+    // =========================================================
+
+    if (measurementList.length > 0) {
+      for (const measurement of measurementList) {
+        const {
+          length_cm,
+          width_cm,
+          height_cm,
+          packages,
+          total,
+          uom,
+          cbm,
+          volume,
+        } = measurement;
+
+        await connection.query(
+          `
+          INSERT INTO freight_tracking_app.grn_measurements
+          (
+            grn_id,
+            length_cm,
+            width_cm,
+            height_cm,
+            packages,
+            total,
+            uom,
+            cbm,
+            volume
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            grnId,
+            length_cm !== undefined && length_cm !== ""
+              ? Number(length_cm)
+              : null,
+
+            width_cm !== undefined && width_cm !== "" ? Number(width_cm) : null,
+
+            height_cm !== undefined && height_cm !== ""
+              ? Number(height_cm)
+              : null,
+
+            packages !== undefined && packages !== "" ? Number(packages) : null,
+
+            total !== undefined && total !== "" ? Number(total) : null,
+
+            uom || null,
+
+            cbm !== undefined && cbm !== "" ? Number(cbm) : null,
+
+            volume !== undefined && volume !== "" ? Number(volume) : null,
+          ],
+        );
+      }
+    }
+
+    // =========================================================
+    // 15. Get Packing List IDs
     // =========================================================
 
     const packingListIds = packingLists.map((pl) => pl.id);
 
     // =========================================================
-    // 14. Update ALL Packing Lists
+    // 16. Update ALL Packing Lists
     // =========================================================
 
     await connection.query(
@@ -279,7 +397,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
     );
 
     // =========================================================
-    // 15. Update GDN
+    // 17. Update GDN
     // =========================================================
 
     await connection.query(
@@ -296,13 +414,13 @@ exports.createGoodsReceiveNote = async (req, res) => {
     );
 
     // =========================================================
-    // 16. Commit Transaction
+    // 18. Commit Transaction
     // =========================================================
 
     await connection.commit();
 
     // =========================================================
-    // 17. Response
+    // 19. Response
     // =========================================================
 
     return res.status(201).json({
@@ -319,6 +437,46 @@ exports.createGoodsReceiveNote = async (req, res) => {
         quantity: quantityNum,
 
         packing_list_ids: packingListIds,
+
+        measurements: measurementList.map((measurement) => ({
+          grn_id: grnId,
+          length_cm:
+            measurement.length_cm !== undefined && measurement.length_cm !== ""
+              ? Number(measurement.length_cm)
+              : null,
+
+          width_cm:
+            measurement.width_cm !== undefined && measurement.width_cm !== ""
+              ? Number(measurement.width_cm)
+              : null,
+
+          height_cm:
+            measurement.height_cm !== undefined && measurement.height_cm !== ""
+              ? Number(measurement.height_cm)
+              : null,
+
+          packages:
+            measurement.packages !== undefined && measurement.packages !== ""
+              ? Number(measurement.packages)
+              : null,
+
+          total:
+            measurement.total !== undefined && measurement.total !== ""
+              ? Number(measurement.total)
+              : null,
+
+          uom: measurement.uom || null,
+
+          cbm:
+            measurement.cbm !== undefined && measurement.cbm !== ""
+              ? Number(measurement.cbm)
+              : null,
+
+          volume:
+            measurement.volume !== undefined && measurement.volume !== ""
+              ? Number(measurement.volume)
+              : null,
+        })),
 
         packing_lists: packingLists.map((pl) => ({
           packing_list_id: pl.id,
@@ -713,46 +871,46 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
   try {
     const grnId = req.params.id;
 
+    // Get GRN details
     const [grnResult] = await connection.query(
       `
-            SELECT 
-                grn.id,
+        SELECT 
+          grn.id,
+          client.name AS client_id,
+          manufacture.name AS manufacture_id,
+          forwarder.name AS forwarder_id,
 
-                client.name AS client_id,
-                manufacture.name AS manufacture_id,
-                forwarder.name AS forwarder_id,
+          -- Recipient details from freight_staff
+          recipient.name AS recipient_name,
+          recipient.contact_no AS recipient_contact_no,
 
-                -- Recipient details from freight_staff
-                recipient.name AS recipient_name,
-                recipient.contact_no AS recipient_contact_no,
+          grn.date,
+          grn.quantity,
+          grn.status,
+          grn.bill_id,
+          grn.comments,
+          grn.created_by,
+          grn.created_on,
+          grn.updated_by,
+          grn.updated_on,
+          grn.recipient_contact
 
-                grn.date,
-                grn.quantity,
-                grn.status,
-                grn.bill_id,
-                grn.comments,
-                grn.created_by,
-                grn.created_on,
-                grn.updated_by,
-                grn.updated_on,
-                grn.recipient_contact
+        FROM freight_tracking_app.goods_receive_notes grn
 
-            FROM freight_tracking_app.goods_receive_notes grn
+        LEFT JOIN freight_tracking_app.clients client
+          ON grn.client_id = client.id
 
-            LEFT JOIN freight_tracking_app.clients client
-                ON grn.client_id = client.id
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON grn.manufacture_id = manufacture.id
 
-            LEFT JOIN freight_tracking_app.clients manufacture
-                ON grn.manufacture_id = manufacture.id
+        LEFT JOIN freight_tracking_app.clients forwarder
+          ON grn.forwarder_id = forwarder.id
 
-            LEFT JOIN freight_tracking_app.clients forwarder
-                ON grn.forwarder_id = forwarder.id
+        LEFT JOIN freight_tracking_app.freight_staff recipient
+          ON grn.recipient_id = recipient.id
 
-            LEFT JOIN freight_tracking_app.freight_staff recipient
-                ON grn.recipient_id = recipient.id
-
-            WHERE grn.id = ?
-            `,
+        WHERE grn.id = ?
+      `,
       [grnId],
     );
 
@@ -765,31 +923,60 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
     const grn = grnResult[0];
 
+    // Get packing lists
     const [packingLists] = await connection.query(
       `
-            SELECT 
-                id,
-                packing_list_no,
-                client_id,
-                manufacturer_id,
-                date,
-                gdn_id,
-                grn_id,
-                total_quantity,
-                ship_to,
-                shipping_mode,
-                status,
-                created_by,
-                created_on,
-                updated_by,
-                updated_on
-            FROM freight_tracking_app.packing_list
-            WHERE grn_id = ?
-            `,
+        SELECT 
+          id,
+          packing_list_no,
+          client_id,
+          manufacturer_id,
+          date,
+          gdn_id,
+          grn_id,
+          total_quantity,
+          ship_to,
+          shipping_mode,
+          status,
+          created_by,
+          created_on,
+          updated_by,
+          updated_on
+
+        FROM freight_tracking_app.packing_list
+
+        WHERE grn_id = ?
+      `,
       [grnId],
     );
 
+    // Get GRN measurements
+    const [measurements] = await connection.query(
+      `
+        SELECT
+          id,
+          grn_id,
+          length_cm,
+          width_cm,
+          height_cm,
+          packages,
+          total,
+          uom,
+          cbm,
+          volume
+
+        FROM freight_tracking_app.grn_measurements
+
+        WHERE grn_id = ?
+
+        ORDER BY id ASC
+      `,
+      [grnId],
+    );
+
+    // Attach related data
     grn.packing_lists = packingLists;
+    grn.measurements = measurements;
 
     return res.status(200).json({
       success: true,
@@ -797,6 +984,8 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
       data: grn,
     });
   } catch (error) {
+    console.error("Error fetching GRN:", error);
+
     return res.status(500).json({
       success: false,
       message: "Error fetching GRN",
