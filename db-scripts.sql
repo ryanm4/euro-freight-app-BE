@@ -119,6 +119,9 @@ CREATE TABLE
         `id` INT NOT NULL AUTO_INCREMENT,
         `client_id` INT NULL,
         `manufacture_id` INT NULL,
+        `shipper_id` INT NULL,
+        `consignee_id` INT NULL,
+        `notify_id` INT NULL,
         `date` DATETIME NULL,
         `type` VARCHAR(45) NULL,
         `house_bl_no` VARCHAR(45) NULL,
@@ -344,4 +347,21 @@ CREATE TABLE
         PRIMARY KEY (`id`),
         INDEX `gdn_idx` (`gdn_id` ASC) VISIBLE,
         CONSTRAINT `gdn` FOREIGN KEY (`gdn_id`) REFERENCES `freight_tracking_app`.`goods_deliver_notes` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`grn_measurements` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `grn_id` INT NOT NULL,
+        `length_cm` DECIMAL(10, 3) NULL,
+        `width_cm` DECIMAL(10, 3) NULL,
+        `height_cm` DECIMAL(10, 3) NULL,
+        `packages` INT NULL,
+        `total` DECIMAL(10, 3) NULL,
+        `uom` VARCHAR(45) NULL,
+        `cbm` DECIMAL(10, 3) NULL,
+        `volume` DECIMAL(10, 3) NULL,
+        PRIMARY KEY (`id`),
+        INDEX `grn_idx` (`grn_id` ASC) VISIBLE,
+        CONSTRAINT `grn` FOREIGN KEY (`grn_id`) REFERENCES `freight_tracking_app`.`goods_receive_notes` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
     );

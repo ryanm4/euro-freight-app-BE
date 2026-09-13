@@ -13,6 +13,9 @@ exports.createHBL = async (req, res) => {
     let {
       client_id,
       manufacture_id,
+      shipper_id,
+      consignee_id,
+      notify_id,
       date,
       type,
       house_bl_no,
@@ -63,6 +66,9 @@ exports.createHBL = async (req, res) => {
         INSERT INTO freight_tracking_app.hbl_hawb_tbl (
           client_id,
           manufacture_id,
+          shipper_id,
+          consignee_id,
+          notify_id,
           date,
           type,
           house_bl_no,
@@ -87,7 +93,7 @@ exports.createHBL = async (req, res) => {
           created_on
         )
         VALUES (
-          ?,?,?,?,?,?,?,?,?,?,
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,
           ?,?,?,?,?,?,?,?,?,?,
           ?,?,?,NOW()
         )
@@ -96,6 +102,9 @@ exports.createHBL = async (req, res) => {
     const [result] = await connection.execute(insertQuery, [
       clean(client_id),
       clean(manufacture_id),
+      clean(shipper_id),
+      clean(consignee_id),
+      clean(notify_id),
       clean(date),
       clean(type),
       clean(house_bl_no),
@@ -437,13 +446,41 @@ exports.updateHBL = async (req, res) => {
 // Get all HBLs with linked GRNs
 exports.getAllHBL = async (req, res) => {
   const { status } = req.query;
+
   try {
     let query = `
       SELECT 
         h.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
+        JSON_OBJECT(
+          'id', client.id,
+          'name', client.name,
+          'address', client.address
+        ) AS client,
+
+        JSON_OBJECT(
+          'id', manufacture.id,
+          'name', manufacture.name,
+          'address', manufacture.address
+        ) AS manufacture,
+
+        JSON_OBJECT(
+          'id', shipper.id,
+          'name', shipper.name,
+          'address', shipper.address
+        ) AS shipper,
+
+        JSON_OBJECT(
+          'id', consignee.id,
+          'name', consignee.name,
+          'address', consignee.address
+        ) AS consignee,
+
+        JSON_OBJECT(
+          'id', notify.id,
+          'name', notify.name,
+          'address', notify.address
+        ) AS notify,
 
         h.date,
         h.type,
@@ -481,6 +518,15 @@ exports.getAllHBL = async (req, res) => {
       LEFT JOIN freight_tracking_app.clients manufacture
         ON h.manufacture_id = manufacture.id
 
+      LEFT JOIN freight_tracking_app.clients shipper
+        ON h.shipper_id = shipper.id
+
+      LEFT JOIN freight_tracking_app.clients consignee
+        ON h.consignee_id = consignee.id
+
+      LEFT JOIN freight_tracking_app.clients notify
+        ON h.notify_id = notify.id
+
       LEFT JOIN (
         SELECT 
           grn.bill_id,
@@ -494,6 +540,7 @@ exports.getAllHBL = async (req, res) => {
               'status', grn.status
             )
           ) AS grns
+
         FROM freight_tracking_app.goods_receive_notes grn
 
         LEFT JOIN freight_tracking_app.clients client
@@ -503,7 +550,8 @@ exports.getAllHBL = async (req, res) => {
           ON grn.manufacture_id = manufacture.id
 
         GROUP BY grn.bill_id
-      ) g ON g.bill_id = h.id
+      ) g 
+        ON g.bill_id = h.id
 
       LEFT JOIN (
         SELECT 
@@ -516,9 +564,12 @@ exports.getAllHBL = async (req, res) => {
               'created_on', created_on
             )
           ) AS ports
+
         FROM freight_tracking_app.multi_ports
+
         GROUP BY hbl_hawb_id
-      ) p ON p.hbl_hawb_id = h.id      
+      ) p 
+        ON p.hbl_hawb_id = h.id
     `;
 
     const params = [];
@@ -527,11 +578,10 @@ exports.getAllHBL = async (req, res) => {
       query += ` WHERE h.status = ?`;
       params.push(status);
     }
-    query += `ORDER BY h.id DESC;`;
+
+    query += ` ORDER BY h.id DESC;`;
 
     const [rows] = await db.query(query, params);
-
-    // const [rows] = await db.execute(query);
 
     return res.status(200).json({
       success: true,
@@ -548,6 +598,7 @@ exports.getAllHBL = async (req, res) => {
 };
 
 // Get HBL by ID with GRNs
+
 exports.getHBLById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -556,8 +607,35 @@ exports.getHBLById = async (req, res) => {
       SELECT 
         h.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
+        JSON_OBJECT(
+          'id', client.id,
+          'name', client.name,
+          'address', client.address
+        ) AS client,
+
+        JSON_OBJECT(
+          'id', manufacture.id,
+          'name', manufacture.name,
+          'address', manufacture.address
+        ) AS manufacture,
+
+        JSON_OBJECT(
+          'id', shipper.id,
+          'name', shipper.name,
+          'address', shipper.address
+        ) AS shipper,
+
+        JSON_OBJECT(
+          'id', consignee.id,
+          'name', consignee.name,
+          'address', consignee.address
+        ) AS consignee,
+
+        JSON_OBJECT(
+          'id', notify.id,
+          'name', notify.name,
+          'address', notify.address
+        ) AS notify,
 
         h.date,
         h.type,
@@ -595,6 +673,15 @@ exports.getHBLById = async (req, res) => {
       LEFT JOIN freight_tracking_app.clients manufacture
         ON h.manufacture_id = manufacture.id
 
+      LEFT JOIN freight_tracking_app.clients shipper
+        ON h.shipper_id = shipper.id
+
+      LEFT JOIN freight_tracking_app.clients consignee
+        ON h.consignee_id = consignee.id
+
+      LEFT JOIN freight_tracking_app.clients notify
+        ON h.notify_id = notify.id
+
       LEFT JOIN (
         SELECT 
           grn.bill_id,
@@ -608,6 +695,7 @@ exports.getHBLById = async (req, res) => {
               'status', grn.status
             )
           ) AS grns
+
         FROM freight_tracking_app.goods_receive_notes grn
 
         LEFT JOIN freight_tracking_app.clients client
@@ -617,7 +705,8 @@ exports.getHBLById = async (req, res) => {
           ON grn.manufacture_id = manufacture.id
 
         GROUP BY grn.bill_id
-      ) g ON g.bill_id = h.id
+      ) g 
+        ON g.bill_id = h.id
 
       LEFT JOIN (
         SELECT 
@@ -630,9 +719,12 @@ exports.getHBLById = async (req, res) => {
               'created_on', created_on
             )
           ) AS ports
+
         FROM freight_tracking_app.multi_ports
+
         GROUP BY hbl_hawb_id
-      ) p ON p.hbl_hawb_id = h.id
+      ) p 
+        ON p.hbl_hawb_id = h.id
 
       WHERE h.id = ?
     `;
