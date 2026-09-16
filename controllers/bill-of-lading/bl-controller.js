@@ -637,6 +637,23 @@ exports.getHBLById = async (req, res) => {
           'address', notify.address
         ) AS notify,
 
+        JSON_OBJECT(
+          'id', shipment.id,
+          'vessel_name', shipment.vessel_name,
+          'voyage_number', shipment.voyage_number,
+          'origin_port', shipment.origin_port,
+          'discharge_port', shipment.discharge_port,
+          'final_place_of_delivery', shipment.final_place_of_delivery,
+          'etd_colombo', shipment.etd_colombo,
+          'eta_discharge_port', shipment.eta_discharge_port,
+          'eta_final_delivery_place', shipment.eta_final_delivery_place,
+          'flight_number', shipment.flight_number,
+          'origin', shipment.origin,
+          'destination', shipment.destination,
+          'etd_origin', shipment.etd_origin,
+          'eta_destination', shipment.eta_destination
+        ) AS shipment,
+
         h.date,
         h.type,
         h.house_bl_no,
@@ -681,6 +698,9 @@ exports.getHBLById = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.clients notify
         ON h.notify_id = notify.id
+
+      LEFT JOIN freight_tracking_app.shipments shipment
+        ON h.shipment_id = shipment.id
 
       LEFT JOIN (
         SELECT 

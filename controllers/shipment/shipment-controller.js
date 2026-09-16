@@ -1,56 +1,126 @@
 const db = require("../../sql-connection");
 
 // Create Shipment
+
 exports.createShipment = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const { vessel_name, status, created_by, hbl_ids } = req.body;
+    const {
+      status,
+      created_by,
 
-    // Insert shipment
+      // Sea shipment
+      vessel_name,
+      voyage_number,
+      origin_port,
+      discharge_port,
+      final_place_of_delivery,
+      etd_colombo,
+      eta_discharge_port,
+      eta_final_delivery_place,
+
+      // Air shipment
+      flight_number,
+      origin,
+      destination,
+      etd_origin,
+      eta_destination,
+
+      // Common shipment details
+      mbl_mawb_no,
+      airline_shipping_line,
+      container_number,
+      container_size,
+      final_seal_no,
+
+      // HBLs
+      hbl_ids,
+    } = req.body;
+
     const shipmentQuery = `
       INSERT INTO freight_tracking_app.shipments (
         vessel_name,
         status,
+        voyage_number,
+        origin_port,
+        discharge_port,
+        final_place_of_delivery,
+        etd_colombo,
+        eta_discharge_port,
+        eta_final_delivery_place,
+        flight_number,
+        origin,
+        destination,
+        etd_origin,
+        eta_destination,
+        mbl_mawb_no,
+        airline_shipping_line,
+        container_number,
+        container_size,
+        final_seal_no,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, NOW())
+      VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
+      )
     `;
 
     const [shipmentResult] = await connection.query(shipmentQuery, [
-      vessel_name,
-      status,
-      created_by,
+      vessel_name || null,
+      status || null,
+      voyage_number || null,
+      origin_port || null,
+      discharge_port || null,
+      final_place_of_delivery || null,
+      etd_colombo || null,
+      eta_discharge_port || null,
+      eta_final_delivery_place || null,
+      flight_number || null,
+      origin || null,
+      destination || null,
+      etd_origin || null,
+      eta_destination || null,
+      mbl_mawb_no || null,
+      airline_shipping_line || null,
+      container_number || null,
+      container_size || null,
+      final_seal_no || null,
+      created_by || null,
     ]);
 
     const shipmentId = shipmentResult.insertId;
 
-    // Update shipment_id in hbl_hawb_tbl
+    // ============================================
+    // Update HBLs
+    // ============================================
     if (Array.isArray(hbl_ids) && hbl_ids.length > 0) {
-      const updateQuery = `
-    UPDATE freight_tracking_app.hbl_hawb_tbl
-    SET
-      shipment_id = ?,
-      status = ?,
-      updated_by = ?,
-      updated_on = NOW()
-    WHERE id IN (?)
-  `;
+      const updateHBLQuery = `
+        UPDATE freight_tracking_app.hbl_hawb_tbl
+        SET
+          shipment_id = ?,
+          status = ?,
+          mbl_mawb_no = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id IN (?)
+      `;
 
-      await connection.query(updateQuery, [
+      await connection.query(updateHBLQuery, [
         shipmentId,
         "SHIPMENT_OPEN",
+        mbl_mawb_no || null,
         created_by,
         hbl_ids,
       ]);
 
-      // =====================
-      // Update Packing Lists (status -> Shipment Open)
-      // Chain: hbl_hawb_tbl <- goods_receive_notes.bill_id <- packing_list.grn_id
-      // =====================
+      // ============================================
+      // Update Packing Lists
+      // ============================================
       const updatePackingListQuery = `
         UPDATE freight_tracking_app.packing_list pl
         INNER JOIN freight_tracking_app.goods_receive_notes grn
@@ -78,16 +148,36 @@ exports.createShipment = async (req, res) => {
         shipment_id: shipmentId,
         vessel_name,
         status,
+        voyage_number,
+        origin_port,
+        discharge_port,
+        final_place_of_delivery,
+        etd_colombo,
+        eta_discharge_port,
+        eta_final_delivery_place,
+        flight_number,
+        origin,
+        destination,
+        etd_origin,
+        eta_destination,
+        mbl_mawb_no,
+        airline_shipping_line,
+        container_number,
+        container_size,
+        final_seal_no,
         hbl_ids,
       },
     });
   } catch (error) {
     await connection.rollback();
 
+    // Log the actual database error on the server only
+    console.error("Create Shipment Error:", error);
+
+    // Do NOT expose database error details to the client
     res.status(500).json({
       success: false,
-      message: "Error creating shipment",
-      error: error.message,
+      message: "Unable to create shipment. Please try again later.",
     });
   } finally {
     connection.release();
@@ -95,6 +185,7 @@ exports.createShipment = async (req, res) => {
 };
 
 // Update Shipment
+
 exports.updateShipment = async (req, res) => {
   const connection = await db.getConnection();
 
@@ -103,12 +194,48 @@ exports.updateShipment = async (req, res) => {
 
     const shipmentId = req.params.id;
 
-    const { vessel_name, status, updated_by, hbl_ids } = req.body;
+    const {
+      // Common
+      status,
+      updated_by,
 
+      // Sea shipment
+      vessel_name,
+      voyage_number,
+      origin_port,
+      discharge_port,
+      final_place_of_delivery,
+      etd_colombo,
+      eta_discharge_port,
+      eta_final_delivery_place,
+
+      // Air shipment
+      flight_number,
+      origin,
+      destination,
+      etd_origin,
+      eta_destination,
+
+      // Common shipment details
+      mbl_mawb_no,
+      airline_shipping_line,
+      container_number,
+      container_size,
+      final_seal_no,
+
+      // HBLs
+      hbl_ids,
+    } = req.body;
+
+    // ============================================
     // Check whether shipment exists
+    // ============================================
     const [existingShipment] = await connection.query(
-      `SELECT * FROM freight_tracking_app.shipments
-       WHERE id = ?`,
+      `
+        SELECT id
+        FROM freight_tracking_app.shipments
+        WHERE id = ?
+      `,
       [shipmentId],
     );
 
@@ -121,45 +248,114 @@ exports.updateShipment = async (req, res) => {
       });
     }
 
-    // Update shipment
-    await connection.query(
-      `
+    // ============================================
+    // Update Shipment
+    // ============================================
+    const updateShipmentQuery = `
       UPDATE freight_tracking_app.shipments
       SET
         vessel_name = ?,
         status = ?,
+        voyage_number = ?,
+        origin_port = ?,
+        discharge_port = ?,
+        final_place_of_delivery = ?,
+        etd_colombo = ?,
+        eta_discharge_port = ?,
+        eta_final_delivery_place = ?,
+        flight_number = ?,
+        origin = ?,
+        destination = ?,
+        etd_origin = ?,
+        eta_destination = ?,
+        mbl_mawb_no = ?,
+        airline_shipping_line = ?,
+        container_number = ?,
+        container_size = ?,
+        final_seal_no = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
-      `,
-      [vessel_name, status, updated_by, shipmentId],
-    );
+    `;
 
-    // Remove shipment reference from previously linked HBLs
+    await connection.query(updateShipmentQuery, [
+      vessel_name || null,
+      status || null,
+      voyage_number || null,
+      origin_port || null,
+      discharge_port || null,
+      final_place_of_delivery || null,
+      etd_colombo || null,
+      eta_discharge_port || null,
+      eta_final_delivery_place || null,
+      flight_number || null,
+      origin || null,
+      destination || null,
+      etd_origin || null,
+      eta_destination || null,
+      mbl_mawb_no || null,
+      airline_shipping_line || null,
+      container_number || null,
+      container_size || null,
+      final_seal_no || null,
+      updated_by || null,
+      shipmentId,
+    ]);
+
+    // ============================================
+    // Remove shipment reference from existing HBLs
+    // ============================================
     await connection.query(
       `
-      UPDATE freight_tracking_app.hbl_hawb_tbl
-      SET
-        shipment_id = NULL,
-        updated_by = ?,
-        updated_on = NOW()
-      WHERE shipment_id = ?
+        UPDATE freight_tracking_app.hbl_hawb_tbl
+        SET
+          shipment_id = NULL,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE shipment_id = ?
       `,
       [updated_by, shipmentId],
     );
 
-    // Assign shipment to the new HBL list
+    // ============================================
+    // Assign shipment to new HBLs
+    // ============================================
     if (Array.isArray(hbl_ids) && hbl_ids.length > 0) {
       await connection.query(
         `
-        UPDATE freight_tracking_app.hbl_hawb_tbl
-        SET
-          shipment_id = ?,
-          updated_by = ?,
-          updated_on = NOW()
-        WHERE id IN (?)
+          UPDATE freight_tracking_app.hbl_hawb_tbl
+          SET
+            shipment_id = ?,
+            status = ?,
+            updated_by = ?,
+            updated_on = NOW()
+          WHERE id IN (?)
         `,
-        [shipmentId, updated_by, hbl_ids],
+        [shipmentId, "SHIPMENT_OPEN", updated_by, hbl_ids],
+      );
+
+      // ============================================
+      // Update Packing Lists
+      //
+      // Chain:
+      // hbl_hawb_tbl
+      //      ↓
+      // goods_receive_notes.bill_id
+      //      ↓
+      // packing_list.grn_id
+      // ============================================
+      await connection.query(
+        `
+          UPDATE freight_tracking_app.packing_list pl
+          INNER JOIN freight_tracking_app.goods_receive_notes grn
+            ON pl.grn_id = grn.id
+          SET
+            pl.status = ?,
+            pl.updated_by = ?,
+            pl.updated_on = NOW()
+          WHERE grn.bill_id IN (?)
+        `,
+        ["SHIPMENT_OPEN", updated_by, hbl_ids],
       );
     }
 
@@ -170,18 +366,42 @@ exports.updateShipment = async (req, res) => {
       message: "Shipment updated successfully",
       data: {
         shipment_id: shipmentId,
+
         vessel_name,
         status,
+        voyage_number,
+        origin_port,
+        discharge_port,
+        final_place_of_delivery,
+        etd_colombo,
+        eta_discharge_port,
+        eta_final_delivery_place,
+
+        flight_number,
+        origin,
+        destination,
+        etd_origin,
+        eta_destination,
+
+        mbl_mawb_no,
+        airline_shipping_line,
+        container_number,
+        container_size,
+        final_seal_no,
+
         hbl_ids,
       },
     });
   } catch (error) {
     await connection.rollback();
 
+    // Log full database error on the server only
+    console.error("Update Shipment Error:", error);
+
+    // Do not expose database details to the client
     res.status(500).json({
       success: false,
-      message: "Error updating shipment",
-      error: error.message,
+      message: "Unable to update shipment. Please try again later.",
     });
   } finally {
     connection.release();
@@ -196,6 +416,23 @@ exports.getAllShipments = async (req, res) => {
         s.id,
         s.vessel_name,
         s.status,
+        s.voyage_number,
+        s.origin_port,
+        s.discharge_port,
+        s.final_place_of_delivery,
+        s.etd_colombo,
+        s.eta_discharge_port,
+        s.eta_final_delivery_place,
+        s.flight_number,
+        s.origin,
+        s.destination,
+        s.etd_origin,
+        s.eta_destination,
+        s.mbl_mawb_no,
+        s.airline_shipping_line,
+        s.container_number,
+        s.container_size,
+        s.final_seal_no,
         s.created_by,
         s.created_on,
         s.updated_by,
@@ -248,6 +485,23 @@ exports.getShipmentById = async (req, res) => {
         id,
         vessel_name,
         status,
+        voyage_number,
+        origin_port,
+        discharge_port,
+        final_place_of_delivery,
+        etd_colombo,
+        eta_discharge_port,
+        eta_final_delivery_place,
+        flight_number,
+        origin,
+        destination,
+        etd_origin,
+        eta_destination,
+        mbl_mawb_no,
+        airline_shipping_line,
+        container_number,
+        container_size,
+        final_seal_no,
         created_by,
         created_on,
         updated_by,
