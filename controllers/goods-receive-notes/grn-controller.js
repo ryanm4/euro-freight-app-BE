@@ -708,7 +708,9 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
             WHEN gdn.id IS NOT NULL THEN
               JSON_OBJECT(
                 'id', gdn.id,
-                'gdn_no', gdn.gdn_no
+                'gdn_no', gdn.gdn_no,
+                'weight', gdn.gross_weight,
+                'volume', gdn.gross_volume
               )
           END
         ) AS gdns,
