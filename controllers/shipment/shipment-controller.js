@@ -409,9 +409,11 @@ exports.updateShipment = async (req, res) => {
 };
 
 // Get All Shipments
+
 exports.getAllShipments = async (req, res) => {
   try {
-    const query = `
+    // 1. Base shipments
+    const [shipmentRows] = await db.query(`
       SELECT
         s.id,
         s.vessel_name,
@@ -436,36 +438,172 @@ exports.getAllShipments = async (req, res) => {
         s.created_by,
         s.created_on,
         s.updated_by,
-        s.updated_on,
-        GROUP_CONCAT(h.id) AS hbl_ids
-      FROM freight_tracking_app.shipments s
-      LEFT JOIN freight_tracking_app.hbl_hawb_tbl h
-        ON s.id = h.shipment_id
-      GROUP BY
-        s.id,
-        s.vessel_name,
-        s.status,
-        s.created_by,
-        s.created_on,
-        s.updated_by,
         s.updated_on
+      FROM freight_tracking_app.shipments s
       ORDER BY s.id DESC
-    `;
+    `);
 
-    const [rows] = await db.query(query);
+    if (shipmentRows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    }
 
-    const shipments = rows.map((row) => ({
-      ...row,
-      hbl_ids: row.hbl_ids ? row.hbl_ids.split(",").map(Number) : [],
+    const shipmentIds = shipmentRows.map((s) => s.id);
+
+    // 2. HBLs linked to shipments
+    const [hblRows] = await db.query(
+      `
+        SELECT *
+        FROM freight_tracking_app.hbl_hawb_tbl
+        WHERE shipment_id IN (?)
+      `,
+      [shipmentIds],
+    );
+
+    const hblIds = hblRows.map((h) => h.id);
+
+    // 3. GRNs linked via bill_id -> hbl.id
+    const [grnRows] = hblIds.length
+      ? await db.query(
+          `
+            SELECT *
+            FROM freight_tracking_app.goods_receive_notes
+            WHERE bill_id IN (?)
+          `,
+          [hblIds],
+        )
+      : [[]];
+
+    const grnIds = grnRows.map((g) => g.id);
+
+    // 4. Packing lists linked via grn_id -> grn.id
+    const [packingListRows] = grnIds.length
+      ? await db.query(
+          `
+            SELECT *
+            FROM freight_tracking_app.packing_list
+            WHERE grn_id IN (?)
+          `,
+          [grnIds],
+        )
+      : [[]];
+
+    // 5. GDN IDs from packing lists
+    const gdnIds = [
+      ...new Set(packingListRows.map((pl) => pl.gdn_id).filter(Boolean)),
+    ];
+
+    // 6. GDNs
+    const [gdnRows] = gdnIds.length
+      ? await db.query(
+          `
+            SELECT *
+            FROM freight_tracking_app.goods_deliver_notes
+            WHERE id IN (?)
+          `,
+          [gdnIds],
+        )
+      : [[]];
+
+    // ---------------------------------------------------------
+    // Assemble hierarchy:
+    //
+    // Shipment
+    //   -> HBL
+    //      -> GRN
+    //         -> GDN
+    //            -> packing_lists[]
+    // ---------------------------------------------------------
+
+    // Packing lists grouped by GDN
+    const packingListsByGdnId = new Map();
+
+    for (const pl of packingListRows) {
+      if (!pl.gdn_id) continue;
+
+      if (!packingListsByGdnId.has(pl.gdn_id)) {
+        packingListsByGdnId.set(pl.gdn_id, []);
+      }
+
+      packingListsByGdnId.get(pl.gdn_id).push(pl);
+    }
+
+    // GDNs enriched with packing lists
+    const gdnById = new Map();
+
+    for (const gdn of gdnRows) {
+      const enrichedGdn = {
+        ...gdn,
+        packing_lists: packingListsByGdnId.get(gdn.id) || [],
+      };
+
+      gdnById.set(gdn.id, enrichedGdn);
+    }
+
+    // GRNs grouped by HBL
+    // A GRN can have one or more GDNs through its packing lists
+    const grnsByBillId = new Map();
+
+    for (const grn of grnRows) {
+      const relatedPackingLists = packingListRows.filter(
+        (pl) => pl.grn_id === grn.id,
+      );
+
+      // Get unique GDNs belonging to this GRN
+      const relatedGdnIds = [
+        ...new Set(relatedPackingLists.map((pl) => pl.gdn_id).filter(Boolean)),
+      ];
+
+      const gdns = relatedGdnIds
+        .map((gdnId) => gdnById.get(gdnId))
+        .filter(Boolean);
+
+      const enrichedGrn = {
+        ...grn,
+        gdns,
+      };
+
+      if (!grnsByBillId.has(grn.bill_id)) {
+        grnsByBillId.set(grn.bill_id, []);
+      }
+
+      grnsByBillId.get(grn.bill_id).push(enrichedGrn);
+    }
+
+    // HBLs grouped by shipment
+    const hblsByShipment = new Map();
+
+    for (const hbl of hblRows) {
+      const enrichedHbl = {
+        ...hbl,
+        grns: grnsByBillId.get(hbl.id) || [],
+      };
+
+      if (!hblsByShipment.has(hbl.shipment_id)) {
+        hblsByShipment.set(hbl.shipment_id, []);
+      }
+
+      hblsByShipment.get(hbl.shipment_id).push(enrichedHbl);
+    }
+
+    // Final shipment hierarchy
+    const shipments = shipmentRows.map((shipment) => ({
+      ...shipment,
+      hbls: hblsByShipment.get(shipment.id) || [],
     }));
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: shipments.length,
       data: shipments,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Error fetching shipments:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Error fetching shipments",
       error: error.message,
