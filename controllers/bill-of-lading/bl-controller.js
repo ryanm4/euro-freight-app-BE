@@ -680,7 +680,8 @@ exports.getHBLById = async (req, res) => {
         h.updated_on,
 
         COALESCE(g.grns, JSON_ARRAY()) AS grns,
-        COALESCE(p.ports, JSON_ARRAY()) AS ports
+        COALESCE(p.ports, JSON_ARRAY()) AS ports,
+        COALESCE(gd.gdns, JSON_ARRAY()) AS gdns
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
@@ -745,6 +746,54 @@ exports.getHBLById = async (req, res) => {
         GROUP BY hbl_hawb_id
       ) p 
         ON p.hbl_hawb_id = h.id
+
+      LEFT JOIN (
+        SELECT 
+          grn.bill_id,
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', gdn.id,
+              'gdn_no', gdn.gdn_no,
+              'client', client.name,
+              'manufacture', manufacture.name,
+              'forwarder', forwarder.name,
+              'date', gdn.date,
+              'cartoons', gdn.cartoons,
+              'actual_cartoons', gdn.actual_cartoons,
+              'gross_weight', gdn.gross_weight,
+              'actual_gross_weight', gdn.actual_gross_weight,
+              'gross_volume', gdn.gross_volume,
+              'actual_gross_volume', gdn.actual_gross_volume,
+              'status', gdn.status,
+              'vehicle_no', gdn.vehicle_no,
+              'dispatch_location', gdn.dispatch_location,
+              'transport_mode', gdn.transport_mode,
+              'container_no', gdn.container_no,
+              'container_size', gdn.container_size,
+              'primary_seal_no', gdn.primary_seal_no,
+              'secondary_seal_no', gdn.secondary_seal_no,
+              'custom_doc_status', gdn.custom_doc_status
+            )
+          ) AS gdns
+
+        FROM freight_tracking_app.goods_deliver_notes gdn
+
+        LEFT JOIN freight_tracking_app.goods_receive_notes grn
+          ON gdn.gdn_grn_ref = grn.id
+
+        LEFT JOIN freight_tracking_app.clients client
+          ON gdn.client_id = client.id
+
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON gdn.manufacture_id = manufacture.id
+
+        LEFT JOIN freight_tracking_app.clients forwarder
+          ON gdn.forwarder_id = forwarder.id
+
+        WHERE grn.bill_id IS NOT NULL
+        GROUP BY grn.bill_id
+      ) gd
+        ON gd.bill_id = h.id
 
       WHERE h.id = ?
     `;
