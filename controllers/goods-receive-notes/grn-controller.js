@@ -699,56 +699,56 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
     const { shipping_mode, status } = req.query;
 
     let query = `
-            SELECT
-                grn.id,
+      SELECT
+        grn.id,
 
-                -- GDN details
-                JSON_ARRAYAGG(
-                    CASE
-                        WHEN gdn.id IS NOT NULL THEN
-                            JSON_OBJECT(
-                                'id', gdn.id,
-                                'gdn_no', gdn.gdn_no
-                            )
-                    END
-                ) AS gdns,
+        -- GDN details
+        JSON_ARRAYAGG(
+          CASE
+            WHEN gdn.id IS NOT NULL THEN
+              JSON_OBJECT(
+                'id', gdn.id,
+                'gdn_no', gdn.gdn_no
+              )
+          END
+        ) AS gdns,
 
-                client.name AS client_id,
-                manufacture.name AS manufacture_id,
-                forwarder.name AS forwarder_id,
+        client.name AS client_id,
+        manufacture.name AS manufacture_id,
+        forwarder.name AS forwarder_id,
 
-                -- Recipient details
-                recipient.name AS recipient_name,
-                recipient.contact_no AS recipient_contact_no,
+        -- Recipient details
+        recipient.name AS recipient_name,
+        recipient.contact_no AS recipient_contact_no,
 
-                grn.date,
-                grn.quantity,
-                grn.status,
-                grn.bill_id,
-                grn.comments,
-                grn.created_by,
-                grn.created_on,
-                grn.updated_by,
-                grn.updated_on,
-                grn.recipient_contact
+        grn.date,
+        grn.quantity,
+        grn.status,
+        grn.bill_id,
+        grn.comments,
+        grn.created_by,
+        grn.created_on,
+        grn.updated_by,
+        grn.updated_on,
+        grn.recipient_contact
 
-            FROM freight_tracking_app.goods_receive_notes grn
+      FROM freight_tracking_app.goods_receive_notes grn
 
-            LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
-                ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
+      LEFT JOIN freight_tracking_app.goods_deliver_notes gdn
+        ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
 
-            LEFT JOIN freight_tracking_app.clients client
-                ON grn.client_id = client.id
+      LEFT JOIN freight_tracking_app.clients client
+        ON grn.client_id = client.id
 
-            LEFT JOIN freight_tracking_app.clients manufacture
-                ON grn.manufacture_id = manufacture.id
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON grn.manufacture_id = manufacture.id
 
-            LEFT JOIN freight_tracking_app.clients forwarder
-                ON grn.forwarder_id = forwarder.id
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON grn.forwarder_id = forwarder.id
 
-            LEFT JOIN freight_tracking_app.freight_staff recipient
-                ON grn.recipient_id = recipient.id
-        `;
+      LEFT JOIN freight_tracking_app.freight_staff recipient
+        ON grn.recipient_id = recipient.id
+    `;
 
     const params = [];
     const conditions = [];
@@ -756,12 +756,19 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
     // Filter by shipping mode
     if (shipping_mode) {
       query += `
-                INNER JOIN freight_tracking_app.packing_list pl
-                    ON pl.grn_id = grn.id
-                    AND pl.shipping_mode = ?
-            `;
+        INNER JOIN freight_tracking_app.packing_list pl
+          ON pl.grn_id = grn.id
+      `;
 
-      params.push(shipping_mode);
+      if (shipping_mode.toLowerCase() === "sea") {
+        // Sea = both LCL and FCL
+        conditions.push(`pl.shipping_mode IN (?, ?)`);
+        params.push("LCL", "FCL");
+      } else {
+        // Other shipping modes = exact match
+        conditions.push(`pl.shipping_mode = ?`);
+        params.push(shipping_mode);
+      }
     }
 
     // Filter by GRN status
@@ -776,61 +783,73 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
     }
 
     query += `
-            GROUP BY
-                grn.id,
-                client.name,
-                manufacture.name,
-                forwarder.name,
-                recipient.name,
-                recipient.contact_no,
-                grn.date,
-                grn.quantity,
-                grn.status,
-                grn.bill_id,
-                grn.comments,
-                grn.created_by,
-                grn.created_on,
-                grn.updated_by,
-                grn.updated_on,
-                grn.recipient_contact
+      GROUP BY
+        grn.id,
+        client.name,
+        manufacture.name,
+        forwarder.name,
+        recipient.name,
+        recipient.contact_no,
+        grn.date,
+        grn.quantity,
+        grn.status,
+        grn.bill_id,
+        grn.comments,
+        grn.created_by,
+        grn.created_on,
+        grn.updated_by,
+        grn.updated_on,
+        grn.recipient_contact
 
-            ORDER BY grn.id DESC
-        `;
+      ORDER BY grn.id DESC
+    `;
 
     const [grns] = await connection.query(query, params);
 
     // Attach packing lists
     for (const grn of grns) {
       let packingListQuery = `
-                SELECT
-                    id,
-                    packing_list_no,
-                    client_id,
-                    manufacturer_id,
-                    date,
-                    gdn_id,
-                    grn_id,
-                    total_quantity,
-                    ship_to,
-                    shipping_mode,
-                    status,
-                    created_by,
-                    created_on,
-                    updated_by,
-                    updated_on
-                FROM freight_tracking_app.packing_list
-                WHERE grn_id = ?
-            `;
+        SELECT
+          id,
+          packing_list_no,
+          client_id,
+          manufacturer_id,
+          date,
+          gdn_id,
+          grn_id,
+          total_quantity,
+          ship_to,
+          shipping_mode,
+          status,
+          created_by,
+          created_on,
+          updated_by,
+          updated_on
+
+        FROM freight_tracking_app.packing_list
+
+        WHERE grn_id = ?
+      `;
 
       const packingParams = [grn.id];
 
       // Filter packing lists by shipping mode
       if (shipping_mode) {
-        packingListQuery += `
-                    AND shipping_mode = ?
-                `;
+        if (shipping_mode.toLowerCase() === "sea") {
+          // Sea = both LCL and FCL
+          packingListQuery += `
+            AND shipping_mode IN (?, ?)
+          `;
 
-        packingParams.push(shipping_mode);
+          packingParams.push("LCL", "FCL");
+        } else {
+          // Other shipping modes = exact match
+          packingListQuery += `
+            AND shipping_mode = ?
+          `;
+
+          packingParams.push(shipping_mode);
+        }
       }
 
       const [packingLists] = await connection.query(
