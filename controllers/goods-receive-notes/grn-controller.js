@@ -753,33 +753,50 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
     const params = [];
     const conditions = [];
 
+    // ---------------------------------------
     // Filter by shipping mode
+    // ---------------------------------------
     if (shipping_mode) {
-      query += `
-        INNER JOIN freight_tracking_app.packing_list pl
-          ON pl.grn_id = grn.id
-      `;
-
       if (shipping_mode.toLowerCase() === "sea") {
-        // Sea = both LCL and FCL
-        conditions.push(`pl.shipping_mode IN (?, ?)`);
-        params.push("LCL", "FCL");
+        // SEA should include both LCL and FCL
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM freight_tracking_app.packing_list pl
+            WHERE pl.grn_id = grn.id
+              AND UPPER(pl.shipping_mode) IN ('LCL', 'FCL')
+          )
+        `);
       } else {
-        // Other shipping modes = exact match
-        conditions.push(`pl.shipping_mode = ?`);
+        // AIR / other modes must match exactly
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM freight_tracking_app.packing_list pl
+            WHERE pl.grn_id = grn.id
+              AND UPPER(pl.shipping_mode) = UPPER(?)
+          )
+        `);
+
         params.push(shipping_mode);
       }
     }
 
+    // ---------------------------------------
     // Filter by GRN status
+    // ---------------------------------------
     if (status) {
       conditions.push(`grn.status = ?`);
       params.push(status);
     }
 
-    // Add WHERE conditions
+    // ---------------------------------------
+    // WHERE conditions
+    // ---------------------------------------
     if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(" AND ")}`;
+      query += `
+        WHERE ${conditions.join(" AND ")}
+      `;
     }
 
     query += `
@@ -806,7 +823,9 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
     const [grns] = await connection.query(query, params);
 
+    // ---------------------------------------
     // Attach packing lists
+    // ---------------------------------------
     for (const grn of grns) {
       let packingListQuery = `
         SELECT
@@ -833,19 +852,19 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
       const packingParams = [grn.id];
 
-      // Filter packing lists by shipping mode
+      // ---------------------------------------
+      // Packing list shipping mode filter
+      // ---------------------------------------
       if (shipping_mode) {
         if (shipping_mode.toLowerCase() === "sea") {
-          // Sea = both LCL and FCL
+          // SEA = LCL + FCL
           packingListQuery += `
-            AND shipping_mode IN (?, ?)
+            AND UPPER(shipping_mode) IN ('LCL', 'FCL')
           `;
-
-          packingParams.push("LCL", "FCL");
         } else {
-          // Other shipping modes = exact match
+          // AIR = AIR only
           packingListQuery += `
-            AND shipping_mode = ?
+            AND UPPER(shipping_mode) = UPPER(?)
           `;
 
           packingParams.push(shipping_mode);
@@ -874,6 +893,8 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
       data: grns,
     });
   } catch (error) {
+    console.error("Error fetching GRNs:", error);
+
     return res.status(500).json({
       success: false,
       message: "Error fetching GRNs",
