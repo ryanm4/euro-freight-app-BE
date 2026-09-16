@@ -840,6 +840,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
           ship_to,
           shipping_mode,
           status,
+          total_cartons,
           created_by,
           created_on,
           updated_by,
