@@ -680,8 +680,7 @@ exports.getHBLById = async (req, res) => {
         h.updated_on,
 
         COALESCE(g.grns, JSON_ARRAY()) AS grns,
-        COALESCE(p.ports, JSON_ARRAY()) AS ports,
-        COALESCE(gd.gdns, JSON_ARRAY()) AS gdns
+        COALESCE(p.ports, JSON_ARRAY()) AS ports
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
@@ -703,6 +702,7 @@ exports.getHBLById = async (req, res) => {
       LEFT JOIN freight_tracking_app.shipments shipment
         ON h.shipment_id = shipment.id
 
+      -- GRNs, each carrying its own nested gdns[] and packing_lists[]
       LEFT JOIN (
         SELECT 
           grn.bill_id,
@@ -713,7 +713,9 @@ exports.getHBLById = async (req, res) => {
               'manufacture_id', manufacture.name,
               'date', grn.date,
               'quantity', grn.quantity,
-              'status', grn.status
+              'status', grn.status,
+              'gdns', COALESCE(gd.gdns, JSON_ARRAY()),
+              'packing_lists', COALESCE(pl.packing_lists, JSON_ARRAY())
             )
           ) AS grns
 
@@ -724,6 +726,100 @@ exports.getHBLById = async (req, res) => {
 
         LEFT JOIN freight_tracking_app.clients manufacture
           ON grn.manufacture_id = manufacture.id
+
+        -- GDNs nested per GRN
+        LEFT JOIN (
+          SELECT 
+            gdn.gdn_grn_ref AS grn_id,
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', gdn.id,
+                'gdn_no', gdn.gdn_no,
+                'client', client.name,
+                'manufacture', manufacture.name,
+                'forwarder', forwarder.name,
+                'date', gdn.date,
+                'cartoons', gdn.cartoons,
+                'actual_cartoons', gdn.actual_cartoons,
+                'weight', gdn.gross_weight,
+                'actual_gross_weight', gdn.actual_gross_weight,
+                'volume', gdn.gross_volume,
+                'actual_gross_volume', gdn.actual_gross_volume,
+                'status', gdn.status,
+                'vehicle_no', gdn.vehicle_no,
+                'dispatch_location', gdn.dispatch_location,
+                'transport_mode', gdn.transport_mode,
+                'container_no', gdn.container_no,
+                'container_size', gdn.container_size,
+                'primary_seal_no', gdn.primary_seal_no,
+                'secondary_seal_no', gdn.secondary_seal_no,
+                'custom_doc_status', gdn.custom_doc_status
+              )
+            ) AS gdns
+
+          FROM freight_tracking_app.goods_deliver_notes gdn
+
+          LEFT JOIN freight_tracking_app.clients client
+            ON gdn.client_id = client.id
+
+          LEFT JOIN freight_tracking_app.clients manufacture
+            ON gdn.manufacture_id = manufacture.id
+
+          LEFT JOIN freight_tracking_app.clients forwarder
+            ON gdn.forwarder_id = forwarder.id
+
+          WHERE gdn.gdn_grn_ref IS NOT NULL
+          GROUP BY gdn.gdn_grn_ref
+        ) gd
+          ON gd.grn_id = grn.id
+
+        -- Packing lists nested per GRN (freight_tracking_app.packing_list.grn_id -> goods_receive_notes.id)
+        LEFT JOIN (
+          SELECT 
+            pl.grn_id,
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', pl.id,
+                'packing_list_no', pl.packing_list_no,
+                'client', pl_client.name,
+                'manufacturer', pl_manufacturer.name,
+                'forwarder', pl_forwarder.name,
+                'date', pl.date,
+                'gdn_id', pl.gdn_id,
+                'grn_id', pl.grn_id,
+                'total_quantity', pl.total_quantity,
+                'ship_to', pl.ship_to,
+                'document_date', pl.document_date,
+                'total_cartons', pl.total_cartons,
+                'weight_kg', pl.total_gross_weight_kg,
+                'total_net_weight_kg', pl.total_net_weight_kg,
+                'total_cbm', pl.total_cbm,
+                'total_volume', pl.total_volume,
+                'shipping_mode', pl.shipping_mode,
+                'file_url', pl.file_url,
+                'status', pl.status,
+                'created_by', pl.created_by,
+                'created_on', pl.created_on,
+                'updated_by', pl.updated_by,
+                'updated_on', pl.updated_on
+              )
+            ) AS packing_lists
+
+          FROM freight_tracking_app.packing_list pl
+
+          LEFT JOIN freight_tracking_app.clients pl_client
+            ON pl.client_id = pl_client.id
+
+          LEFT JOIN freight_tracking_app.clients pl_manufacturer
+            ON pl.manufacturer_id = pl_manufacturer.id
+
+          LEFT JOIN freight_tracking_app.clients pl_forwarder
+            ON pl.forwarder_id = pl_forwarder.id
+
+          WHERE pl.grn_id IS NOT NULL
+          GROUP BY pl.grn_id
+        ) pl
+          ON pl.grn_id = grn.id
 
         GROUP BY grn.bill_id
       ) g 
@@ -746,54 +842,6 @@ exports.getHBLById = async (req, res) => {
         GROUP BY hbl_hawb_id
       ) p 
         ON p.hbl_hawb_id = h.id
-
-      LEFT JOIN (
-        SELECT 
-          grn.bill_id,
-          JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', gdn.id,
-              'gdn_no', gdn.gdn_no,
-              'client', client.name,
-              'manufacture', manufacture.name,
-              'forwarder', forwarder.name,
-              'date', gdn.date,
-              'cartoons', gdn.cartoons,
-              'actual_cartoons', gdn.actual_cartoons,
-              'gross_weight', gdn.gross_weight,
-              'actual_gross_weight', gdn.actual_gross_weight,
-              'gross_volume', gdn.gross_volume,
-              'actual_gross_volume', gdn.actual_gross_volume,
-              'status', gdn.status,
-              'vehicle_no', gdn.vehicle_no,
-              'dispatch_location', gdn.dispatch_location,
-              'transport_mode', gdn.transport_mode,
-              'container_no', gdn.container_no,
-              'container_size', gdn.container_size,
-              'primary_seal_no', gdn.primary_seal_no,
-              'secondary_seal_no', gdn.secondary_seal_no,
-              'custom_doc_status', gdn.custom_doc_status
-            )
-          ) AS gdns
-
-        FROM freight_tracking_app.goods_deliver_notes gdn
-
-        LEFT JOIN freight_tracking_app.goods_receive_notes grn
-          ON gdn.gdn_grn_ref = grn.id
-
-        LEFT JOIN freight_tracking_app.clients client
-          ON gdn.client_id = client.id
-
-        LEFT JOIN freight_tracking_app.clients manufacture
-          ON gdn.manufacture_id = manufacture.id
-
-        LEFT JOIN freight_tracking_app.clients forwarder
-          ON gdn.forwarder_id = forwarder.id
-
-        WHERE grn.bill_id IS NOT NULL
-        GROUP BY grn.bill_id
-      ) gd
-        ON gd.bill_id = h.id
 
       WHERE h.id = ?
     `;
