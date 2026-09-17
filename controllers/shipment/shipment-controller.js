@@ -657,14 +657,19 @@ exports.getShipmentById = async (req, res) => {
       });
     }
 
-    // Get associated HBL/HAWB records (WITH CLIENT NAMES)
+    // Get associated HBL/HAWB records (WITH CLIENT/MANUFACTURE DETAILS)
     const [hblRows] = await db.query(
       `
       SELECT
         h.id,
 
-        client.name AS client_id,
-        manufacture.name AS manufacture_id,
+        client.id   AS client_id,
+        client.name AS client_name,
+        client.address AS client_address,
+
+        manufacture.id   AS manufacture_id,
+        manufacture.name AS manufacture_name,
+        manufacture.address AS manufacture_address,
 
         h.date,
         h.type,
@@ -704,11 +709,42 @@ exports.getShipmentById = async (req, res) => {
       [shipmentId],
     );
 
+    // Reshape flat client/manufacture columns into nested objects
+    const formattedHblRows = hblRows.map((row) => {
+      const {
+        client_id,
+        client_name,
+        client_address,
+        manufacture_id,
+        manufacture_name,
+        manufacture_address,
+        ...rest
+      } = row;
+
+      return {
+        ...rest,
+        client: client_id
+          ? {
+              id: client_id,
+              name: client_name,
+              address: client_address,
+            }
+          : null,
+        manufacture: manufacture_id
+          ? {
+              id: manufacture_id,
+              name: manufacture_name,
+              address: manufacture_address,
+            }
+          : null,
+      };
+    });
+
     res.status(200).json({
       success: true,
       data: {
         ...shipmentRows[0],
-        hbl_hawb_details: hblRows,
+        hbl_hawb_details: formattedHblRows,
       },
     });
   } catch (error) {
