@@ -3,6 +3,13 @@ const db = require("../../sql-connection");
 // Helper to convert undefined → null
 const clean = (val) => (val === undefined ? null : val);
 
+const cleanDateTime = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return value;
+};
+
 // Create HBL + update multiple GRNs
 exports.createHBL = async (req, res) => {
   const connection = await db.getConnection();
@@ -111,10 +118,10 @@ exports.createHBL = async (req, res) => {
       clean(shipment_id),
       clean(planned_vessel_name),
       clean(voyage_no),
-      clean(etd),
-      clean(eta),
-      clean(actual_etd),
-      clean(actual_eta),
+      cleanDateTime(etd),
+      cleanDateTime(eta),
+      cleanDateTime(actual_etd),
+      cleanDateTime(actual_eta),
       clean(arrival_port),
       clean(inland_location),
       clean(mbl_mawb_no),
@@ -124,7 +131,7 @@ exports.createHBL = async (req, res) => {
       clean(chargeable_weight),
       clean(cbm),
       clean(container_seal_no),
-      clean(onboard_date),
+      cleanDateTime(onboard_date),
       clean(created_by),
     ]);
 
