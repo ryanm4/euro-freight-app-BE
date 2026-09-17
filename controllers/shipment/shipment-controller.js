@@ -35,7 +35,6 @@ exports.createShipment = async (req, res) => {
       container_number,
       container_size,
       final_seal_no,
-      freight_cost,
 
       // HBLs
       hbl_ids,
@@ -62,12 +61,11 @@ exports.createShipment = async (req, res) => {
         container_number,
         container_size,
         final_seal_no,
-        freight_cost,
         created_by,
         created_on
       )
       VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
       )
     `;
@@ -92,7 +90,6 @@ exports.createShipment = async (req, res) => {
       container_number || null,
       container_size || null,
       final_seal_no || null,
-      freight_cost || null,
       created_by || null,
     ]);
 
@@ -168,7 +165,6 @@ exports.createShipment = async (req, res) => {
         container_number,
         container_size,
         final_seal_no,
-        freight_cost,
         hbl_ids,
       },
     });
@@ -226,7 +222,6 @@ exports.updateShipment = async (req, res) => {
       container_number,
       container_size,
       final_seal_no,
-      freight_cost,
 
       // HBLs
       hbl_ids,
@@ -278,7 +273,6 @@ exports.updateShipment = async (req, res) => {
         container_number = ?,
         container_size = ?,
         final_seal_no = ?,
-        freight_cost = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
@@ -304,7 +298,6 @@ exports.updateShipment = async (req, res) => {
       container_number || null,
       container_size || null,
       final_seal_no || null,
-      freight_cost || null,
       updated_by || null,
       shipmentId,
     ]);
@@ -395,7 +388,7 @@ exports.updateShipment = async (req, res) => {
         container_number,
         container_size,
         final_seal_no,
-        freight_cost,
+
         hbl_ids,
       },
     });
@@ -442,7 +435,6 @@ exports.getAllShipments = async (req, res) => {
         s.container_number,
         s.container_size,
         s.final_seal_no,
-        s.freight_cost,
         s.created_by,
         s.created_on,
         s.updated_by,
@@ -648,7 +640,6 @@ exports.getShipmentById = async (req, res) => {
         container_number,
         container_size,
         final_seal_no,
-        freight_cost,
         created_by,
         created_on,
         updated_by,

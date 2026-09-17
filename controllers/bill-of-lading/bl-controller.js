@@ -43,6 +43,7 @@ exports.createHBL = async (req, res) => {
       cbm,
       container_seal_no,
       onboard_date,
+      total_freight_cost,
       created_by,
       grn_ids,
       ports = [],
@@ -96,12 +97,13 @@ exports.createHBL = async (req, res) => {
           cbm,
           container_seal_no,
           onboard_date,
+          total_freight_cost
           created_by,
           created_on
         )
         VALUES (
           ?,?,?,?,?,?,?,?,?,?,?,?,?,
-          ?,?,?,?,?,?,?,?,?,?,
+          ?,?,?,?,?,?,?,?,?,?,?,
           ?,?,?,NOW()
         )
       `;
@@ -132,6 +134,7 @@ exports.createHBL = async (req, res) => {
       clean(cbm),
       clean(container_seal_no),
       cleanDateTime(onboard_date),
+      clean(total_freight_cost),
       clean(created_by),
     ]);
 
@@ -285,6 +288,7 @@ exports.updateHBL = async (req, res) => {
       cbm,
       container_seal_no,
       onboard_date,
+      total_freight_cost,
       updated_by,
       grn_ids,
       ports = [], // NEW: multi ports
@@ -332,6 +336,7 @@ exports.updateHBL = async (req, res) => {
         cbm = ?,
         container_seal_no = ?,
         onboard_date = ?,
+        total_freight_cost = ?,
         updated_by = ?,
         updated_on = NOW()
       WHERE id = ?
@@ -360,6 +365,7 @@ exports.updateHBL = async (req, res) => {
       clean(cbm),
       clean(container_seal_no),
       cleanDateTime(onboard_date),
+      clean(total_freight_cost),
       clean(updated_by),
       id,
     ]);
@@ -509,6 +515,7 @@ exports.getAllHBL = async (req, res) => {
         h.cbm,
         h.container_seal_no,
         h.onboard_date,
+        h.total_freight_cost,
         h.created_by,
         h.created_on,
         h.updated_by,
@@ -681,6 +688,7 @@ exports.getHBLById = async (req, res) => {
         h.cbm,
         h.container_seal_no,
         h.onboard_date,
+        h.total_freight_cost,
         h.created_by,
         h.created_on,
         h.updated_by,
