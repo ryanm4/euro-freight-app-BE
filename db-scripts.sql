@@ -184,6 +184,7 @@ CREATE TABLE
         `container_number` VARCHAR(45) NULL,
         `container_size` VARCHAR(45) NULL,
         `final_seal_no` VARCHAR(45) NULL,
+        `freight_cost` DECIMAL(10, 3) NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
