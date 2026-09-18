@@ -914,16 +914,19 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
   try {
     const grnId = req.params.id;
 
-    // Get GRN details
+    // ---------------------------------------------------------
+    // 1. Get GRN details
+    // ---------------------------------------------------------
     const [grnResult] = await connection.query(
       `
         SELECT 
           grn.id,
+
           client.name AS client_id,
           manufacture.name AS manufacture_id,
           forwarder.name AS forwarder_id,
 
-          -- Recipient details from freight_staff
+          -- Recipient details
           recipient.name AS recipient_name,
           recipient.contact_no AS recipient_contact_no,
 
@@ -966,7 +969,9 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
     const grn = grnResult[0];
 
-    // Get packing lists
+    // ---------------------------------------------------------
+    // 2. Get Packing Lists
+    // ---------------------------------------------------------
     const [packingLists] = await connection.query(
       `
         SELECT 
@@ -993,7 +998,9 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
       [grnId],
     );
 
-    // Get GRN measurements
+    // ---------------------------------------------------------
+    // 3. Get GRN Measurements
+    // ---------------------------------------------------------
     const [measurements] = await connection.query(
       `
         SELECT
@@ -1017,10 +1024,141 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
       [grnId],
     );
 
-    // Attach related data
+    // ---------------------------------------------------------
+    // 4. Get GDN details
+    // ---------------------------------------------------------
+    const [gdnResult] = await connection.query(
+      `
+        SELECT
+          gdn.id,
+          gdn.gdn_no,
+
+          client.name AS client_id,
+          manufacture.name AS manufacture_id,
+          forwarder.name AS forwarder_id,
+
+          gdn.date,
+          gdn.cartoons,
+          gdn.actual_cartoons,
+          gdn.gross_weight,
+          gdn.actual_gross_weight,
+          gdn.gross_volume,
+          gdn.actual_gross_volume,
+
+          gdn.status,
+          gdn.gdn_grn_ref,
+          gdn.vehicle_no,
+
+          gdn.driver_id,
+          driver.name AS driver_name,
+
+          gdn.created_by,
+          gdn.created_on,
+          gdn.updated_by,
+          gdn.updated_on,
+
+          gdn.dispatch_location,
+          gdn.transport_mode,
+
+          gdn.container_no,
+          gdn.container_size,
+          gdn.primary_seal_no,
+          gdn.secondary_seal_no,
+
+          gdn.custom_doc_status,
+
+          gdn.wharf_staff_id,
+          wharf_staff.name AS wharf_staff_name,
+
+          gdn.driver_contact_no,
+          gdn.wharf_contact_no,
+
+          gdn.length_cm,
+          gdn.width_cm,
+          gdn.height_cm
+
+        FROM freight_tracking_app.goods_deliver_notes gdn
+
+        LEFT JOIN freight_tracking_app.clients client
+          ON gdn.client_id = client.id
+
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON gdn.manufacture_id = manufacture.id
+
+        LEFT JOIN freight_tracking_app.clients forwarder
+          ON gdn.forwarder_id = forwarder.id
+
+        LEFT JOIN freight_tracking_app.freight_staff driver
+          ON gdn.driver_id = driver.id
+
+        LEFT JOIN freight_tracking_app.freight_staff wharf_staff
+          ON gdn.wharf_staff_id = wharf_staff.id
+
+        WHERE gdn.gdn_grn_ref = ?
+
+        ORDER BY gdn.id ASC
+      `,
+      [grnId],
+    );
+
+    // ---------------------------------------------------------
+    // 5. Get GDN measurements
+    // ---------------------------------------------------------
+    let gdnMeasurements = [];
+
+    if (gdnResult.length > 0) {
+      const gdnIds = gdnResult.map((gdn) => gdn.id);
+
+      const placeholders = gdnIds.map(() => "?").join(",");
+
+      const [measurementResult] = await connection.query(
+        `
+          SELECT
+            id,
+            gdn_id,
+            length_cm,
+            width_cm,
+            height_cm,
+            packages,
+            total,
+            uom,
+            cbm,
+            volume
+
+          FROM freight_tracking_app.gdn_measurements
+
+          WHERE gdn_id IN (${placeholders})
+
+          ORDER BY id ASC
+        `,
+        gdnIds,
+      );
+
+      gdnMeasurements = measurementResult;
+    }
+
+    // ---------------------------------------------------------
+    // 6. Attach GDN measurements to each GDN
+    // ---------------------------------------------------------
+    const gdns = gdnResult.map((gdn) => {
+      return {
+        ...gdn,
+        measurements: gdnMeasurements.filter(
+          (measurement) => measurement.gdn_id === gdn.id,
+        ),
+      };
+    });
+
+    // ---------------------------------------------------------
+    // 7. Attach related data to GRN
+    // ---------------------------------------------------------
     grn.packing_lists = packingLists;
     grn.measurements = measurements;
+    grn.gdns = gdns;
 
+    // ---------------------------------------------------------
+    // 8. Response
+    // ---------------------------------------------------------
     return res.status(200).json({
       success: true,
       message: "GRN fetched successfully",
