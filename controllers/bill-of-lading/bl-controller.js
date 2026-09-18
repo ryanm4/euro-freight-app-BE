@@ -97,7 +97,7 @@ exports.createHBL = async (req, res) => {
           cbm,
           container_seal_no,
           onboard_date,
-          total_freight_cost
+          total_freight_cost,
           created_by,
           created_on
         )
