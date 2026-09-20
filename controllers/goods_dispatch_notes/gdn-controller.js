@@ -504,7 +504,8 @@ exports.getAllGDN = async (req, res) => {
                 'id', p.id,
                 'shipping_mode', p.shipping_mode,
                 'packing_list_no', p.packing_list_no,
-                'total_quantity', p.total_quantity
+                'total_quantity', p.total_quantity,
+                'ship_to', p.ship_to
               )
             )
             FROM freight_tracking_app.packing_list p
