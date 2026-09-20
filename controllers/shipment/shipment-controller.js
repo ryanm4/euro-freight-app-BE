@@ -433,39 +433,102 @@ exports.updateShipment = async (req, res) => {
 
 exports.getAllShipments = async (req, res) => {
   try {
+    const { status, shipping_mode } = req.query;
+
     // ============================================
-    // 1. Get all shipments
+    // 1. Build Shipment Filters
     // ============================================
 
-    const [shipmentRows] = await db.query(`
-      SELECT
-        s.id,
-        s.vessel_name,
-        s.status,
-        s.voyage_number,
-        s.origin_port,
-        s.discharge_port,
-        s.final_place_of_delivery,
-        s.etd_colombo,
-        s.eta_discharge_port,
-        s.eta_final_delivery_place,
-        s.flight_number,
-        s.origin,
-        s.destination,
-        s.etd_origin,
-        s.eta_destination,
-        s.mbl_mawb_no,
-        s.airline_shipping_line,
-        s.container_number,
-        s.container_size,
-        s.final_seal_no,
-        s.created_by,
-        s.created_on,
-        s.updated_by,
-        s.updated_on
-      FROM freight_tracking_app.shipments s
-      ORDER BY s.id DESC
-    `);
+    const shipmentConditions = [];
+    const shipmentParams = [];
+
+    // status comes from shipments table
+    if (status) {
+      shipmentConditions.push("s.status = ?");
+      shipmentParams.push(status);
+    }
+
+    // ============================================
+    // 2. Get Shipment IDs matching shipping_mode
+    //    from packing_list
+    // ============================================
+
+    let shippingModeShipmentIds = null;
+
+    if (shipping_mode) {
+      const [rows] = await db.query(
+        `
+      SELECT DISTINCT grn.shipment_id
+      FROM freight_tracking_app.packing_list pl
+
+      INNER JOIN freight_tracking_app.goods_receive_notes grn
+        ON pl.grn_id = grn.id
+
+      WHERE pl.shipping_mode = ?
+        AND grn.shipment_id IS NOT NULL
+    `,
+        [shipping_mode],
+      );
+
+      shippingModeShipmentIds = rows.map((row) => row.shipment_id);
+
+      // No shipments found for shipping mode
+      if (shippingModeShipmentIds.length === 0) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          data: [],
+        });
+      }
+
+      shipmentConditions.push("s.id IN (?)");
+      shipmentParams.push(shippingModeShipmentIds);
+    }
+
+    // ============================================
+    // 3. Get Shipments
+    // ============================================
+
+    let shipmentQuery = `
+  SELECT
+    s.id,
+    s.vessel_name,
+    s.status,
+    s.voyage_number,
+    s.origin_port,
+    s.discharge_port,
+    s.final_place_of_delivery,
+    s.etd_colombo,
+    s.eta_discharge_port,
+    s.eta_final_delivery_place,
+    s.flight_number,
+    s.origin,
+    s.destination,
+    s.etd_origin,
+    s.eta_destination,
+    s.mbl_mawb_no,
+    s.airline_shipping_line,
+    s.container_number,
+    s.container_size,
+    s.final_seal_no,
+    s.created_by,
+    s.created_on,
+    s.updated_by,
+    s.updated_on
+  FROM freight_tracking_app.shipments s
+`;
+
+    if (shipmentConditions.length > 0) {
+      shipmentQuery += `
+    WHERE ${shipmentConditions.join(" AND ")}
+  `;
+    }
+
+    shipmentQuery += `
+  ORDER BY s.id DESC
+`;
+
+    const [shipmentRows] = await db.query(shipmentQuery, shipmentParams);
 
     if (shipmentRows.length === 0) {
       return res.status(200).json({
@@ -478,78 +541,78 @@ exports.getAllShipments = async (req, res) => {
     const shipmentIds = shipmentRows.map((s) => s.id);
 
     // ============================================
-    // 2. Get GRNs + Client/Manufacture/Forwarder
+    // 4. Get GRNs + Client/Manufacture/Forwarder
     // ============================================
 
     const [grnRows] = await db.query(
       `
-        SELECT
-          grn.*,
+    SELECT
+      grn.*,
 
-          -- Client
-          client.id AS client_id,
-          client.name AS client_name,
-          client.address AS client_address,
-          client.contact_no AS client_contact_no,
-          client.contact_person AS client_contact_person,
-          client.status AS client_status,
-          client.type AS client_type,
+      -- Client
+      client.id AS client_id,
+      client.name AS client_name,
+      client.address AS client_address,
+      client.contact_no AS client_contact_no,
+      client.contact_person AS client_contact_person,
+      client.status AS client_status,
+      client.type AS client_type,
 
-          -- Manufacture
-          manufacture.id AS manufacture_id,
-          manufacture.name AS manufacture_name,
-          manufacture.address AS manufacture_address,
-          manufacture.contact_no AS manufacture_contact_no,
-          manufacture.contact_person AS manufacture_contact_person,
-          manufacture.status AS manufacture_status,
-          manufacture.type AS manufacture_type,
+      -- Manufacture
+      manufacture.id AS manufacture_id,
+      manufacture.name AS manufacture_name,
+      manufacture.address AS manufacture_address,
+      manufacture.contact_no AS manufacture_contact_no,
+      manufacture.contact_person AS manufacture_contact_person,
+      manufacture.status AS manufacture_status,
+      manufacture.type AS manufacture_type,
 
-          -- Forwarder
-          forwarder.id AS forwarder_id,
-          forwarder.name AS forwarder_name,
-          forwarder.address AS forwarder_address,
-          forwarder.contact_no AS forwarder_contact_no,
-          forwarder.contact_person AS forwarder_contact_person,
-          forwarder.status AS forwarder_status,
-          forwarder.type AS forwarder_type
+      -- Forwarder
+      forwarder.id AS forwarder_id,
+      forwarder.name AS forwarder_name,
+      forwarder.address AS forwarder_address,
+      forwarder.contact_no AS forwarder_contact_no,
+      forwarder.contact_person AS forwarder_contact_person,
+      forwarder.status AS forwarder_status,
+      forwarder.type AS forwarder_type
 
-        FROM freight_tracking_app.goods_receive_notes grn
+    FROM freight_tracking_app.goods_receive_notes grn
 
-        LEFT JOIN freight_tracking_app.clients client
-          ON grn.client_id = client.id
+    LEFT JOIN freight_tracking_app.clients client
+      ON grn.client_id = client.id
 
-        LEFT JOIN freight_tracking_app.clients manufacture
-          ON grn.manufacture_id = manufacture.id
+    LEFT JOIN freight_tracking_app.clients manufacture
+      ON grn.manufacture_id = manufacture.id
 
-        LEFT JOIN freight_tracking_app.clients forwarder
-          ON grn.forwarder_id = forwarder.id
+    LEFT JOIN freight_tracking_app.clients forwarder
+      ON grn.forwarder_id = forwarder.id
 
-        WHERE grn.shipment_id IN (?)
+    WHERE grn.shipment_id IN (?)
 
-        ORDER BY grn.id
-      `,
+    ORDER BY grn.id
+  `,
       [shipmentIds],
     );
 
     const grnIds = grnRows.map((grn) => grn.id);
 
     // ============================================
-    // 3. Get Packing Lists linked to GRNs
+    // 5. Get Packing Lists linked to GRNs
     // ============================================
 
     const [packingListRows] = grnIds.length
       ? await db.query(
           `
-            SELECT *
-            FROM freight_tracking_app.packing_list
-            WHERE grn_id IN (?)
-          `,
+        SELECT *
+        FROM freight_tracking_app.packing_list
+        WHERE grn_id IN (?)
+      `,
           [grnIds],
         )
       : [[]];
 
     // ============================================
-    // 4. Get GDN IDs from Packing Lists
+    // 6. Get GDN IDs from Packing Lists
     // ============================================
 
     const gdnIds = [
@@ -557,22 +620,22 @@ exports.getAllShipments = async (req, res) => {
     ];
 
     // ============================================
-    // 5. Get GDNs
+    // 7. Get GDNs
     // ============================================
 
     const [gdnRows] = gdnIds.length
       ? await db.query(
           `
-            SELECT *
-            FROM freight_tracking_app.goods_deliver_notes
-            WHERE id IN (?)
-          `,
+        SELECT *
+        FROM freight_tracking_app.goods_deliver_notes
+        WHERE id IN (?)
+      `,
           [gdnIds],
         )
       : [[]];
 
     // ============================================
-    // 6. Group Packing Lists by GDN
+    // 8. Group Packing Lists by GDN
     // ============================================
 
     const packingListsByGdnId = new Map();
@@ -588,7 +651,7 @@ exports.getAllShipments = async (req, res) => {
     }
 
     // ============================================
-    // 7. Enrich GDNs with Packing Lists
+    // 9. Enrich GDNs with Packing Lists
     // ============================================
 
     const gdnById = new Map();
@@ -603,38 +666,26 @@ exports.getAllShipments = async (req, res) => {
     }
 
     // ============================================
-    // 8. Enrich GRNs
+    // 10. Enrich GRNs
     // ============================================
 
     const grnsByShipmentId = new Map();
 
     for (const grn of grnRows) {
-      // --------------------------------------------
-      // Get packing lists belonging to this GRN
-      // --------------------------------------------
-
       const relatedPackingLists = packingListRows.filter(
         (pl) => pl.grn_id === grn.id,
       );
 
-      // --------------------------------------------
-      // Get unique GDN IDs
-      // --------------------------------------------
-
       const relatedGdnIds = [
         ...new Set(relatedPackingLists.map((pl) => pl.gdn_id).filter(Boolean)),
       ];
-
-      // --------------------------------------------
-      // Get GDNs
-      // --------------------------------------------
 
       const gdns = relatedGdnIds
         .map((gdnId) => gdnById.get(gdnId))
         .filter(Boolean);
 
       // --------------------------------------------
-      // Build Client object
+      // Client
       // --------------------------------------------
 
       const client = grn.client_id
@@ -650,7 +701,7 @@ exports.getAllShipments = async (req, res) => {
         : null;
 
       // --------------------------------------------
-      // Build Manufacture object
+      // Manufacture
       // --------------------------------------------
 
       const manufacture = grn.manufacture_id
@@ -666,7 +717,7 @@ exports.getAllShipments = async (req, res) => {
         : null;
 
       // --------------------------------------------
-      // Build Forwarder object
+      // Forwarder
       // --------------------------------------------
 
       const forwarder = grn.forwarder_id
@@ -682,7 +733,7 @@ exports.getAllShipments = async (req, res) => {
         : null;
 
       // --------------------------------------------
-      // Remove flat joined fields
+      // Remove joined fields
       // --------------------------------------------
 
       const {
@@ -714,22 +765,16 @@ exports.getAllShipments = async (req, res) => {
       } = grn;
 
       // --------------------------------------------
-      // Final enriched GRN
+      // Final GRN
       // --------------------------------------------
 
       const enrichedGrn = {
         ...grnData,
-
         client,
         manufacture,
         forwarder,
-
         gdns,
       };
-
-      // --------------------------------------------
-      // Group GRNs by Shipment
-      // --------------------------------------------
 
       if (!grnsByShipmentId.has(grn.shipment_id)) {
         grnsByShipmentId.set(grn.shipment_id, []);
@@ -739,17 +784,16 @@ exports.getAllShipments = async (req, res) => {
     }
 
     // ============================================
-    // 9. Final Shipment Hierarchy
+    // 11. Final Shipment Hierarchy
     // ============================================
 
     const shipments = shipmentRows.map((shipment) => ({
       ...shipment,
-
       grns: grnsByShipmentId.get(shipment.id) || [],
     }));
 
     // ============================================
-    // 10. Response
+    // 12. Response
     // ============================================
 
     return res.status(200).json({
