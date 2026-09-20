@@ -879,7 +879,7 @@ exports.updateHBL = async (req, res) => {
 
 // Get all HBLs with linked GRNs
 exports.getAllHBL = async (req, res) => {
-  const { status } = req.query;
+  const { type, status } = req.query;
 
   try {
     let query = `
@@ -1197,73 +1197,50 @@ exports.getAllHBL = async (req, res) => {
                                     JSON_OBJECT(
 
                                       'id', pl.id,
-
                                       'packing_list_no',
                                         pl.packing_list_no,
-
                                       'client_id',
                                         pl.client_id,
-
                                       'manufacturer_id',
                                         pl.manufacturer_id,
-
                                       'forwarder_id',
                                         pl.forwarder_id,
-
                                       'date',
                                         pl.date,
-
                                       'gdn_id',
                                         pl.gdn_id,
-
                                       'grn_id',
                                         pl.grn_id,
-
                                       'total_quantity',
                                         pl.total_quantity,
-
                                       'ship_to',
                                         pl.ship_to,
-
                                       'document_date',
                                         pl.document_date,
-
                                       'total_cartons',
                                         pl.total_cartons,
-
                                       'total_gross_weight_kg',
                                         pl.total_gross_weight_kg,
-
                                       'total_net_weight_kg',
                                         pl.total_net_weight_kg,
-
                                       'total_cbm',
                                         pl.total_cbm,
-
                                       'total_volume',
                                         pl.total_volume,
-
                                       'shipping_mode',
                                         pl.shipping_mode,
-
                                       'file_url',
                                         pl.file_url,
-
                                       'status',
                                         pl.status,
-
                                       'destination',
                                         pl.destination,
-
                                       'created_by',
                                         pl.created_by,
-
                                       'created_on',
                                         pl.created_on,
-
                                       'updated_by',
                                         pl.updated_by,
-
                                       'updated_on',
                                         pl.updated_on
 
@@ -1368,15 +1345,25 @@ exports.getAllHBL = async (req, res) => {
     const params = [];
 
     // =========================================================
-    // STATUS FILTER
+    // DYNAMIC FILTERS
     // =========================================================
 
-    if (status) {
-      query += `
-        WHERE h.status = ?
-      `;
+    const filters = [];
 
+    if (type) {
+      filters.push(`h.type = ?`);
+      params.push(type);
+    }
+
+    if (status) {
+      filters.push(`h.status = ?`);
       params.push(status);
+    }
+
+    if (filters.length > 0) {
+      query += `
+        WHERE ${filters.join(" AND ")}
+      `;
     }
 
     // =========================================================
