@@ -658,7 +658,8 @@ exports.getGDNById = async (req, res) => {
                 'total_gross_weight_kg', p.total_gross_weight_kg,
                 'total_net_weight_kg', p.total_net_weight_kg,
                 'total_cbm', p.total_cbm,
-                'total_volume', p.total_volume
+                'total_volume', p.total_volume,
+                'ship_to', p.ship_to
               )
             )
             FROM freight_tracking_app.packing_list p
