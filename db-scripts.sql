@@ -194,6 +194,19 @@ CREATE TABLE
     );
 
 CREATE TABLE
+    `freight_tracking_app`.`hbl_shipments` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `hbl_id` INT NOT NULL,
+        `shipment_id` INT NOT NULL,
+        `created_by` VARCHAR(45) NULL,
+        `created_on` DATETIME NULL,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uk_hbl_shipment` (`hbl_id`, `shipment_id`),
+        INDEX `idx_hbl_id` (`hbl_id`),
+        INDEX `idx_shipment_id` (`shipment_id`)
+    );
+
+CREATE TABLE
     `freight_tracking_app`.`goods_deliver_notes` (
         `id` INT NOT NULL AUTO_INCREMENT,
         `gdn_no` VARCHAR(45) NULL,
