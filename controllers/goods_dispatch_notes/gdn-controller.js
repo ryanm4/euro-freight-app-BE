@@ -607,11 +607,9 @@ exports.getGDNById = async (req, res) => {
       SELECT
         g.id,
         g.gdn_no,
-
         client.name AS client_name,
         manufacture.name AS manufacture_name,
         forwarder.name AS forwarder_name,
-
         g.date,
         g.cartoons,
         g.actual_cartoons,
@@ -619,7 +617,6 @@ exports.getGDNById = async (req, res) => {
         g.actual_gross_weight,
         g.gross_volume,
         g.actual_gross_volume,
-
         g.status,
         g.gdn_grn_ref,
         g.vehicle_no,
@@ -641,7 +638,6 @@ exports.getGDNById = async (req, res) => {
         g.custom_doc_status,
         g.driver_contact_no,
         g.wharf_contact_no,
-
         g.created_by,
         g.created_on,
         g.updated_by,
@@ -661,7 +657,8 @@ exports.getGDNById = async (req, res) => {
                 'total_cartons', p.total_cartons,
                 'total_gross_weight_kg', p.total_gross_weight_kg,
                 'total_net_weight_kg', p.total_net_weight_kg,
-                'total_cbm', p.total_cbm
+                'total_cbm', p.total_cbm,
+                'total_volume', p.total_volume
               )
             )
             FROM freight_tracking_app.packing_list p
