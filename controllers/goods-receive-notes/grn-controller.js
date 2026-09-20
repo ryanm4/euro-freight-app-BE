@@ -710,7 +710,10 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
                 'id', gdn.id,
                 'gdn_no', gdn.gdn_no,
                 'weight', gdn.gross_weight,
-                'volume', gdn.gross_volume
+                'volume', gdn.gross_volume,
+                'custom_doc_status', gdn.custom_doc_status,
+                'status', gdn.status,
+                'vehicle_no', gdn.vehicle_no
               )
           END
         ) AS gdns,
