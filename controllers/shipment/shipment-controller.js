@@ -36,9 +36,13 @@ exports.createShipment = async (req, res) => {
       container_size,
       final_seal_no,
 
-      // HBLs
-      hbl_ids,
+      // GRNs
+      grn_ids,
     } = req.body;
+
+    // ============================================
+    // Create Shipment
+    // ============================================
 
     const shipmentQuery = `
       INSERT INTO freight_tracking_app.shipments (
@@ -96,31 +100,31 @@ exports.createShipment = async (req, res) => {
     const shipmentId = shipmentResult.insertId;
 
     // ============================================
-    // Update HBLs
+    // Update GRNs
     // ============================================
-    if (Array.isArray(hbl_ids) && hbl_ids.length > 0) {
-      const updateHBLQuery = `
-        UPDATE freight_tracking_app.hbl_hawb_tbl
+
+    if (Array.isArray(grn_ids) && grn_ids.length > 0) {
+      const updateGRNQuery = `
+        UPDATE freight_tracking_app.goods_receive_notes
         SET
           shipment_id = ?,
           status = ?,
-          mbl_mawb_no = ?,
           updated_by = ?,
           updated_on = NOW()
         WHERE id IN (?)
       `;
 
-      await connection.query(updateHBLQuery, [
+      await connection.query(updateGRNQuery, [
         shipmentId,
         "SHIPMENT_OPEN",
-        mbl_mawb_no || null,
-        created_by,
-        hbl_ids,
+        created_by || null,
+        grn_ids,
       ]);
 
       // ============================================
-      // Update Packing Lists
+      // Update Packing Lists related to GRNs
       // ============================================
+
       const updatePackingListQuery = `
         UPDATE freight_tracking_app.packing_list pl
         INNER JOIN freight_tracking_app.goods_receive_notes grn
@@ -129,15 +133,19 @@ exports.createShipment = async (req, res) => {
           pl.status = ?,
           pl.updated_by = ?,
           pl.updated_on = NOW()
-        WHERE grn.bill_id IN (?)
+        WHERE grn.id IN (?)
       `;
 
       await connection.query(updatePackingListQuery, [
         "SHIPMENT_OPEN",
-        created_by,
-        hbl_ids,
+        created_by || null,
+        grn_ids,
       ]);
     }
+
+    // ============================================
+    // Commit Transaction
+    // ============================================
 
     await connection.commit();
 
@@ -146,6 +154,7 @@ exports.createShipment = async (req, res) => {
       message: "Shipment created successfully",
       data: {
         shipment_id: shipmentId,
+
         vessel_name,
         status,
         voyage_number,
@@ -155,26 +164,27 @@ exports.createShipment = async (req, res) => {
         etd_colombo,
         eta_discharge_port,
         eta_final_delivery_place,
+
         flight_number,
         origin,
         destination,
         etd_origin,
         eta_destination,
+
         mbl_mawb_no,
         airline_shipping_line,
         container_number,
         container_size,
         final_seal_no,
-        hbl_ids,
+
+        grn_ids,
       },
     });
   } catch (error) {
     await connection.rollback();
 
-    // Log the actual database error on the server only
     console.error("Create Shipment Error:", error);
 
-    // Do NOT expose database error details to the client
     res.status(500).json({
       success: false,
       message: "Unable to create shipment. Please try again later.",
@@ -223,13 +233,14 @@ exports.updateShipment = async (req, res) => {
       container_size,
       final_seal_no,
 
-      // HBLs
-      hbl_ids,
+      // GRNs
+      grn_ids,
     } = req.body;
 
     // ============================================
     // Check whether shipment exists
     // ============================================
+
     const [existingShipment] = await connection.query(
       `
         SELECT id
@@ -251,6 +262,7 @@ exports.updateShipment = async (req, res) => {
     // ============================================
     // Update Shipment
     // ============================================
+
     const updateShipmentQuery = `
       UPDATE freight_tracking_app.shipments
       SET
@@ -303,27 +315,33 @@ exports.updateShipment = async (req, res) => {
     ]);
 
     // ============================================
-    // Remove shipment reference from existing HBLs
+    // Remove shipment reference from existing GRNs
     // ============================================
+
     await connection.query(
       `
-        UPDATE freight_tracking_app.hbl_hawb_tbl
+        UPDATE freight_tracking_app.goods_receive_notes
         SET
           shipment_id = NULL,
           updated_by = ?,
           updated_on = NOW()
         WHERE shipment_id = ?
       `,
-      [updated_by, shipmentId],
+      [updated_by || null, shipmentId],
     );
 
     // ============================================
-    // Assign shipment to new HBLs
+    // Assign shipment to new GRNs
     // ============================================
-    if (Array.isArray(hbl_ids) && hbl_ids.length > 0) {
+
+    if (Array.isArray(grn_ids) && grn_ids.length > 0) {
+      // ==========================================
+      // Update GRNs
+      // ==========================================
+
       await connection.query(
         `
-          UPDATE freight_tracking_app.hbl_hawb_tbl
+          UPDATE freight_tracking_app.goods_receive_notes
           SET
             shipment_id = ?,
             status = ?,
@@ -331,19 +349,19 @@ exports.updateShipment = async (req, res) => {
             updated_on = NOW()
           WHERE id IN (?)
         `,
-        [shipmentId, "SHIPMENT_OPEN", updated_by, hbl_ids],
+        [shipmentId, "SHIPMENT_OPEN", updated_by || null, grn_ids],
       );
 
-      // ============================================
+      // ==========================================
       // Update Packing Lists
       //
       // Chain:
-      // hbl_hawb_tbl
-      //      ↓
-      // goods_receive_notes.bill_id
-      //      ↓
+      //
+      // GRN
+      //  ↓
       // packing_list.grn_id
-      // ============================================
+      // ==========================================
+
       await connection.query(
         `
           UPDATE freight_tracking_app.packing_list pl
@@ -353,17 +371,22 @@ exports.updateShipment = async (req, res) => {
             pl.status = ?,
             pl.updated_by = ?,
             pl.updated_on = NOW()
-          WHERE grn.bill_id IN (?)
+          WHERE grn.id IN (?)
         `,
-        ["SHIPMENT_OPEN", updated_by, hbl_ids],
+        ["SHIPMENT_OPEN", updated_by || null, grn_ids],
       );
     }
+
+    // ============================================
+    // Commit Transaction
+    // ============================================
 
     await connection.commit();
 
     res.status(200).json({
       success: true,
       message: "Shipment updated successfully",
+
       data: {
         shipment_id: shipmentId,
 
@@ -389,16 +412,14 @@ exports.updateShipment = async (req, res) => {
         container_size,
         final_seal_no,
 
-        hbl_ids,
+        grn_ids,
       },
     });
   } catch (error) {
     await connection.rollback();
 
-    // Log full database error on the server only
     console.error("Update Shipment Error:", error);
 
-    // Do not expose database details to the client
     res.status(500).json({
       success: false,
       message: "Unable to update shipment. Please try again later.",
@@ -412,7 +433,10 @@ exports.updateShipment = async (req, res) => {
 
 exports.getAllShipments = async (req, res) => {
   try {
-    // 1. Base shipments
+    // ============================================
+    // 1. Get all shipments
+    // ============================================
+
     const [shipmentRows] = await db.query(`
       SELECT
         s.id,
@@ -453,33 +477,66 @@ exports.getAllShipments = async (req, res) => {
 
     const shipmentIds = shipmentRows.map((s) => s.id);
 
-    // 2. HBLs linked to shipments
-    const [hblRows] = await db.query(
+    // ============================================
+    // 2. Get GRNs + Client/Manufacture/Forwarder
+    // ============================================
+
+    const [grnRows] = await db.query(
       `
-        SELECT *
-        FROM freight_tracking_app.hbl_hawb_tbl
-        WHERE shipment_id IN (?)
+        SELECT
+          grn.*,
+
+          -- Client
+          client.id AS client_id,
+          client.name AS client_name,
+          client.address AS client_address,
+          client.contact_no AS client_contact_no,
+          client.contact_person AS client_contact_person,
+          client.status AS client_status,
+          client.type AS client_type,
+
+          -- Manufacture
+          manufacture.id AS manufacture_id,
+          manufacture.name AS manufacture_name,
+          manufacture.address AS manufacture_address,
+          manufacture.contact_no AS manufacture_contact_no,
+          manufacture.contact_person AS manufacture_contact_person,
+          manufacture.status AS manufacture_status,
+          manufacture.type AS manufacture_type,
+
+          -- Forwarder
+          forwarder.id AS forwarder_id,
+          forwarder.name AS forwarder_name,
+          forwarder.address AS forwarder_address,
+          forwarder.contact_no AS forwarder_contact_no,
+          forwarder.contact_person AS forwarder_contact_person,
+          forwarder.status AS forwarder_status,
+          forwarder.type AS forwarder_type
+
+        FROM freight_tracking_app.goods_receive_notes grn
+
+        LEFT JOIN freight_tracking_app.clients client
+          ON grn.client_id = client.id
+
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON grn.manufacture_id = manufacture.id
+
+        LEFT JOIN freight_tracking_app.clients forwarder
+          ON grn.forwarder_id = forwarder.id
+
+        WHERE grn.shipment_id IN (?)
+
+        ORDER BY grn.id
       `,
       [shipmentIds],
     );
 
-    const hblIds = hblRows.map((h) => h.id);
+    const grnIds = grnRows.map((grn) => grn.id);
 
-    // 3. GRNs linked via bill_id -> hbl.id
-    const [grnRows] = hblIds.length
-      ? await db.query(
-          `
-            SELECT *
-            FROM freight_tracking_app.goods_receive_notes
-            WHERE bill_id IN (?)
-          `,
-          [hblIds],
-        )
-      : [[]];
+    // ============================================
+    // 3. Get Packing Lists linked to GRNs
+    // ============================================
 
-    const grnIds = grnRows.map((g) => g.id);
-
-    // 4. Packing lists linked via grn_id -> grn.id
     const [packingListRows] = grnIds.length
       ? await db.query(
           `
@@ -491,12 +548,18 @@ exports.getAllShipments = async (req, res) => {
         )
       : [[]];
 
-    // 5. GDN IDs from packing lists
+    // ============================================
+    // 4. Get GDN IDs from Packing Lists
+    // ============================================
+
     const gdnIds = [
       ...new Set(packingListRows.map((pl) => pl.gdn_id).filter(Boolean)),
     ];
 
-    // 6. GDNs
+    // ============================================
+    // 5. Get GDNs
+    // ============================================
+
     const [gdnRows] = gdnIds.length
       ? await db.query(
           `
@@ -508,17 +571,10 @@ exports.getAllShipments = async (req, res) => {
         )
       : [[]];
 
-    // ---------------------------------------------------------
-    // Assemble hierarchy:
-    //
-    // Shipment
-    //   -> HBL
-    //      -> GRN
-    //         -> GDN
-    //            -> packing_lists[]
-    // ---------------------------------------------------------
+    // ============================================
+    // 6. Group Packing Lists by GDN
+    // ============================================
 
-    // Packing lists grouped by GDN
     const packingListsByGdnId = new Map();
 
     for (const pl of packingListRows) {
@@ -531,7 +587,10 @@ exports.getAllShipments = async (req, res) => {
       packingListsByGdnId.get(pl.gdn_id).push(pl);
     }
 
-    // GDNs enriched with packing lists
+    // ============================================
+    // 7. Enrich GDNs with Packing Lists
+    // ============================================
+
     const gdnById = new Map();
 
     for (const gdn of gdnRows) {
@@ -543,57 +602,155 @@ exports.getAllShipments = async (req, res) => {
       gdnById.set(gdn.id, enrichedGdn);
     }
 
-    // GRNs grouped by HBL
-    // A GRN can have one or more GDNs through its packing lists
-    const grnsByBillId = new Map();
+    // ============================================
+    // 8. Enrich GRNs
+    // ============================================
+
+    const grnsByShipmentId = new Map();
 
     for (const grn of grnRows) {
+      // --------------------------------------------
+      // Get packing lists belonging to this GRN
+      // --------------------------------------------
+
       const relatedPackingLists = packingListRows.filter(
         (pl) => pl.grn_id === grn.id,
       );
 
-      // Get unique GDNs belonging to this GRN
+      // --------------------------------------------
+      // Get unique GDN IDs
+      // --------------------------------------------
+
       const relatedGdnIds = [
         ...new Set(relatedPackingLists.map((pl) => pl.gdn_id).filter(Boolean)),
       ];
+
+      // --------------------------------------------
+      // Get GDNs
+      // --------------------------------------------
 
       const gdns = relatedGdnIds
         .map((gdnId) => gdnById.get(gdnId))
         .filter(Boolean);
 
+      // --------------------------------------------
+      // Build Client object
+      // --------------------------------------------
+
+      const client = grn.client_id
+        ? {
+            id: grn.client_id,
+            name: grn.client_name,
+            address: grn.client_address,
+            contact_no: grn.client_contact_no,
+            contact_person: grn.client_contact_person,
+            status: grn.client_status,
+            type: grn.client_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Build Manufacture object
+      // --------------------------------------------
+
+      const manufacture = grn.manufacture_id
+        ? {
+            id: grn.manufacture_id,
+            name: grn.manufacture_name,
+            address: grn.manufacture_address,
+            contact_no: grn.manufacture_contact_no,
+            contact_person: grn.manufacture_contact_person,
+            status: grn.manufacture_status,
+            type: grn.manufacture_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Build Forwarder object
+      // --------------------------------------------
+
+      const forwarder = grn.forwarder_id
+        ? {
+            id: grn.forwarder_id,
+            name: grn.forwarder_name,
+            address: grn.forwarder_address,
+            contact_no: grn.forwarder_contact_no,
+            contact_person: grn.forwarder_contact_person,
+            status: grn.forwarder_status,
+            type: grn.forwarder_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Remove flat joined fields
+      // --------------------------------------------
+
+      const {
+        client_id,
+        client_name,
+        client_address,
+        client_contact_no,
+        client_contact_person,
+        client_status,
+        client_type,
+
+        manufacture_id,
+        manufacture_name,
+        manufacture_address,
+        manufacture_contact_no,
+        manufacture_contact_person,
+        manufacture_status,
+        manufacture_type,
+
+        forwarder_id,
+        forwarder_name,
+        forwarder_address,
+        forwarder_contact_no,
+        forwarder_contact_person,
+        forwarder_status,
+        forwarder_type,
+
+        ...grnData
+      } = grn;
+
+      // --------------------------------------------
+      // Final enriched GRN
+      // --------------------------------------------
+
       const enrichedGrn = {
-        ...grn,
+        ...grnData,
+
+        client,
+        manufacture,
+        forwarder,
+
         gdns,
       };
 
-      if (!grnsByBillId.has(grn.bill_id)) {
-        grnsByBillId.set(grn.bill_id, []);
+      // --------------------------------------------
+      // Group GRNs by Shipment
+      // --------------------------------------------
+
+      if (!grnsByShipmentId.has(grn.shipment_id)) {
+        grnsByShipmentId.set(grn.shipment_id, []);
       }
 
-      grnsByBillId.get(grn.bill_id).push(enrichedGrn);
+      grnsByShipmentId.get(grn.shipment_id).push(enrichedGrn);
     }
 
-    // HBLs grouped by shipment
-    const hblsByShipment = new Map();
+    // ============================================
+    // 9. Final Shipment Hierarchy
+    // ============================================
 
-    for (const hbl of hblRows) {
-      const enrichedHbl = {
-        ...hbl,
-        grns: grnsByBillId.get(hbl.id) || [],
-      };
-
-      if (!hblsByShipment.has(hbl.shipment_id)) {
-        hblsByShipment.set(hbl.shipment_id, []);
-      }
-
-      hblsByShipment.get(hbl.shipment_id).push(enrichedHbl);
-    }
-
-    // Final shipment hierarchy
     const shipments = shipmentRows.map((shipment) => ({
       ...shipment,
-      hbls: hblsByShipment.get(shipment.id) || [],
+
+      grns: grnsByShipmentId.get(shipment.id) || [],
     }));
+
+    // ============================================
+    // 10. Response
+    // ============================================
 
     return res.status(200).json({
       success: true,
@@ -616,36 +773,39 @@ exports.getShipmentById = async (req, res) => {
   try {
     const shipmentId = req.params.id;
 
-    // Get shipment
+    // ============================================
+    // 1. Get Shipment
+    // ============================================
+
     const [shipmentRows] = await db.query(
       `
-      SELECT
-        id,
-        vessel_name,
-        status,
-        voyage_number,
-        origin_port,
-        discharge_port,
-        final_place_of_delivery,
-        etd_colombo,
-        eta_discharge_port,
-        eta_final_delivery_place,
-        flight_number,
-        origin,
-        destination,
-        etd_origin,
-        eta_destination,
-        mbl_mawb_no,
-        airline_shipping_line,
-        container_number,
-        container_size,
-        final_seal_no,
-        created_by,
-        created_on,
-        updated_by,
-        updated_on
-      FROM freight_tracking_app.shipments
-      WHERE id = ?
+        SELECT
+          id,
+          vessel_name,
+          status,
+          voyage_number,
+          origin_port,
+          discharge_port,
+          final_place_of_delivery,
+          etd_colombo,
+          eta_discharge_port,
+          eta_final_delivery_place,
+          flight_number,
+          origin,
+          destination,
+          etd_origin,
+          eta_destination,
+          mbl_mawb_no,
+          airline_shipping_line,
+          container_number,
+          container_size,
+          final_seal_no,
+          created_by,
+          created_on,
+          updated_by,
+          updated_on
+        FROM freight_tracking_app.shipments
+        WHERE id = ?
       `,
       [shipmentId],
     );
@@ -657,98 +817,292 @@ exports.getShipmentById = async (req, res) => {
       });
     }
 
-    // Get associated HBL/HAWB records (WITH CLIENT/MANUFACTURE DETAILS)
-    const [hblRows] = await db.query(
+    // ============================================
+    // 2. Get GRNs + Client/Manufacture/Forwarder
+    // ============================================
+
+    const [grnRows] = await db.query(
       `
-      SELECT
-        h.id,
+        SELECT
+          grn.*,
 
-        client.id   AS client_id,
-        client.name AS client_name,
-        client.address AS client_address,
+          -- Client
+          client.id AS client_id,
+          client.name AS client_name,
+          client.address AS client_address,
+          client.contact_no AS client_contact_no,
+          client.contact_person AS client_contact_person,
+          client.status AS client_status,
+          client.type AS client_type,
 
-        manufacture.id   AS manufacture_id,
-        manufacture.name AS manufacture_name,
-        manufacture.address AS manufacture_address,
+          -- Manufacture
+          manufacture.id AS manufacture_id,
+          manufacture.name AS manufacture_name,
+          manufacture.address AS manufacture_address,
+          manufacture.contact_no AS manufacture_contact_no,
+          manufacture.contact_person AS manufacture_contact_person,
+          manufacture.status AS manufacture_status,
+          manufacture.type AS manufacture_type,
 
-        h.date,
-        h.type,
-        h.shipment_id,
-        h.planned_vessel_name,
-        h.voyage_no,
-        h.etd,
-        h.eta,
-        h.actual_etd,
-        h.actual_eta,
-        h.arrival_port,
-        h.inland_location,
-        h.mbl_mawb_no,
-        h.status,
-        h.no_pieces,
-        h.gross_weight,
-        h.chargeable_weight,
-        h.cbm,
-        h.container_seal_no,
-        h.onboard_date,
-        h.created_by,
-        h.created_on,
-        h.updated_by,
-        h.updated_on
+          -- Forwarder
+          forwarder.id AS forwarder_id,
+          forwarder.name AS forwarder_name,
+          forwarder.address AS forwarder_address,
+          forwarder.contact_no AS forwarder_contact_no,
+          forwarder.contact_person AS forwarder_contact_person,
+          forwarder.status AS forwarder_status,
+          forwarder.type AS forwarder_type
 
-      FROM freight_tracking_app.hbl_hawb_tbl h
+        FROM freight_tracking_app.goods_receive_notes grn
 
-      LEFT JOIN freight_tracking_app.clients client
-        ON h.client_id = client.id
+        LEFT JOIN freight_tracking_app.clients client
+          ON grn.client_id = client.id
 
-      LEFT JOIN freight_tracking_app.clients manufacture
-        ON h.manufacture_id = manufacture.id
+        LEFT JOIN freight_tracking_app.clients manufacture
+          ON grn.manufacture_id = manufacture.id
 
-      WHERE h.shipment_id = ?
-      ORDER BY h.id
+        LEFT JOIN freight_tracking_app.clients forwarder
+          ON grn.forwarder_id = forwarder.id
+
+        WHERE grn.shipment_id = ?
+
+        ORDER BY grn.id
       `,
       [shipmentId],
     );
 
-    // Reshape flat client/manufacture columns into nested objects
-    const formattedHblRows = hblRows.map((row) => {
+    // ============================================
+    // 3. If no GRNs
+    // ============================================
+
+    if (grnRows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          ...shipmentRows[0],
+          grns: [],
+        },
+      });
+    }
+
+    const grnIds = grnRows.map((grn) => grn.id);
+
+    // ============================================
+    // 4. Get Packing Lists linked to GRNs
+    // ============================================
+
+    const [packingListRows] = await db.query(
+      `
+        SELECT
+          pl.*
+        FROM freight_tracking_app.packing_list pl
+        WHERE pl.grn_id IN (?)
+        ORDER BY pl.id
+      `,
+      [grnIds],
+    );
+
+    // ============================================
+    // 5. Get GDN IDs from Packing Lists
+    // ============================================
+
+    const gdnIds = [
+      ...new Set(packingListRows.map((pl) => pl.gdn_id).filter(Boolean)),
+    ];
+
+    // ============================================
+    // 6. Get GDNs
+    // ============================================
+
+    const [gdnRows] = gdnIds.length
+      ? await db.query(
+          `
+            SELECT
+              gdn.*
+            FROM freight_tracking_app.goods_deliver_notes gdn
+            WHERE gdn.id IN (?)
+            ORDER BY gdn.id
+          `,
+          [gdnIds],
+        )
+      : [[]];
+
+    // ============================================
+    // 7. Group Packing Lists by GDN
+    // ============================================
+
+    const packingListsByGdnId = new Map();
+
+    for (const pl of packingListRows) {
+      if (!pl.gdn_id) continue;
+
+      if (!packingListsByGdnId.has(pl.gdn_id)) {
+        packingListsByGdnId.set(pl.gdn_id, []);
+      }
+
+      packingListsByGdnId.get(pl.gdn_id).push(pl);
+    }
+
+    // ============================================
+    // 8. Enrich GDNs with Packing Lists
+    // ============================================
+
+    const gdnById = new Map();
+
+    for (const gdn of gdnRows) {
+      gdnById.set(gdn.id, {
+        ...gdn,
+        packing_lists: packingListsByGdnId.get(gdn.id) || [],
+      });
+    }
+
+    // ============================================
+    // 9. Group Packing Lists by GRN
+    // ============================================
+
+    const packingListsByGrnId = new Map();
+
+    for (const pl of packingListRows) {
+      if (!packingListsByGrnId.has(pl.grn_id)) {
+        packingListsByGrnId.set(pl.grn_id, []);
+      }
+
+      packingListsByGrnId.get(pl.grn_id).push(pl);
+    }
+
+    // ============================================
+    // 10. Enrich GRNs
+    // ============================================
+
+    const formattedGrnRows = grnRows.map((grn) => {
+      const relatedPackingLists = packingListsByGrnId.get(grn.id) || [];
+
+      // --------------------------------------------
+      // Get unique GDN IDs
+      // --------------------------------------------
+
+      const relatedGdnIds = [
+        ...new Set(relatedPackingLists.map((pl) => pl.gdn_id).filter(Boolean)),
+      ];
+
+      // --------------------------------------------
+      // Get GDNs
+      // --------------------------------------------
+
+      const gdns = relatedGdnIds
+        .map((gdnId) => gdnById.get(gdnId))
+        .filter(Boolean);
+
+      // --------------------------------------------
+      // Client object
+      // --------------------------------------------
+
+      const client = grn.client_id
+        ? {
+            id: grn.client_id,
+            name: grn.client_name,
+            address: grn.client_address,
+            contact_no: grn.client_contact_no,
+            contact_person: grn.client_contact_person,
+            status: grn.client_status,
+            type: grn.client_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Manufacture object
+      // --------------------------------------------
+
+      const manufacture = grn.manufacture_id
+        ? {
+            id: grn.manufacture_id,
+            name: grn.manufacture_name,
+            address: grn.manufacture_address,
+            contact_no: grn.manufacture_contact_no,
+            contact_person: grn.manufacture_contact_person,
+            status: grn.manufacture_status,
+            type: grn.manufacture_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Forwarder object
+      // --------------------------------------------
+
+      const forwarder = grn.forwarder_id
+        ? {
+            id: grn.forwarder_id,
+            name: grn.forwarder_name,
+            address: grn.forwarder_address,
+            contact_no: grn.forwarder_contact_no,
+            contact_person: grn.forwarder_contact_person,
+            status: grn.forwarder_status,
+            type: grn.forwarder_type,
+          }
+        : null;
+
+      // --------------------------------------------
+      // Remove flat joined fields
+      // --------------------------------------------
+
       const {
         client_id,
         client_name,
         client_address,
+        client_contact_no,
+        client_contact_person,
+        client_status,
+        client_type,
+
         manufacture_id,
         manufacture_name,
         manufacture_address,
-        ...rest
-      } = row;
+        manufacture_contact_no,
+        manufacture_contact_person,
+        manufacture_status,
+        manufacture_type,
+
+        forwarder_id,
+        forwarder_name,
+        forwarder_address,
+        forwarder_contact_no,
+        forwarder_contact_person,
+        forwarder_status,
+        forwarder_type,
+
+        ...grnData
+      } = grn;
+
+      // --------------------------------------------
+      // Final GRN object
+      // --------------------------------------------
 
       return {
-        ...rest,
-        client: client_id
-          ? {
-              id: client_id,
-              name: client_name,
-              address: client_address,
-            }
-          : null,
-        manufacture: manufacture_id
-          ? {
-              id: manufacture_id,
-              name: manufacture_name,
-              address: manufacture_address,
-            }
-          : null,
+        ...grnData,
+
+        client,
+        manufacture,
+        forwarder,
+
+        gdns,
       };
     });
 
-    res.status(200).json({
+    // ============================================
+    // 11. Final Response
+    // ============================================
+
+    return res.status(200).json({
       success: true,
       data: {
         ...shipmentRows[0],
-        hbl_hawb_details: formattedHblRows,
+        grns: formattedGrnRows,
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Error fetching shipment:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Error fetching shipment",
       error: error.message,

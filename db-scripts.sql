@@ -242,6 +242,7 @@ CREATE TABLE
         `date` DATETIME NULL,
         `quantity` INT NULL,
         `bill_id` INT NULL,
+        `shipment_id` INT NULL,
         `actual_carton_count` INT NULL,
         `status` VARCHAR(45) NULL,
         `comments` TEXT NULL,
