@@ -513,7 +513,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const grnId = req.params.id;
+    const grnId = Number(req.params.id);
 
     const {
       client_id,
@@ -527,126 +527,326 @@ exports.updateGoodsReceiveNote = async (req, res) => {
       status,
       comments,
       updated_by,
-      packing_list_ids,
+      gdn_id,
+      measurements,
     } = req.body;
 
-    if (!grnId) {
+    // =========================================================
+    // 1. Validate GRN ID
+    // =========================================================
+
+    if (!grnId || isNaN(grnId)) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
-        message: "GRN ID is required",
+        message: "GRN ID is required and must be a valid number",
       });
     }
 
-    if (
-      !packing_list_ids ||
-      !Array.isArray(packing_list_ids) ||
-      packing_list_ids.length === 0
-    ) {
+    // =========================================================
+    // 2. Validate GDN ID
+    // =========================================================
+
+    const gdnId = Number(gdn_id);
+
+    if (!gdn_id || isNaN(gdnId)) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
-        message: "packing_list_ids is required",
+        message: "gdn_id is required and must be a valid number",
       });
     }
+
+    // =========================================================
+    // 3. Validate Quantity
+    // =========================================================
 
     const quantityNum = Number(quantity);
 
     if (isNaN(quantityNum)) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
-        message: "Invalid GRN quantity",
+        message: "quantity must be a valid number",
       });
     }
 
-    // Check GRN exists
+    // =========================================================
+    // 4. Validate Measurements
+    // =========================================================
+
+    if (measurements !== undefined && !Array.isArray(measurements)) {
+      await connection.rollback();
+
+      return res.status(400).json({
+        success: false,
+        message: "measurements must be an array",
+      });
+    }
+
+    const measurementList = Array.isArray(measurements) ? measurements : [];
+
+    // Validate each measurement
+    for (let i = 0; i < measurementList.length; i++) {
+      const measurement = measurementList[i];
+
+      if (!measurement || typeof measurement !== "object") {
+        await connection.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message: `Invalid measurement at index ${i}`,
+        });
+      }
+
+      const {
+        length_cm,
+        width_cm,
+        height_cm,
+        packages,
+        total,
+        uom,
+        cbm,
+        volume,
+      } = measurement;
+
+      const numericFields = {
+        length_cm,
+        width_cm,
+        height_cm,
+        packages,
+        total,
+        cbm,
+        volume,
+      };
+
+      for (const [field, value] of Object.entries(numericFields)) {
+        if (
+          value !== null &&
+          value !== undefined &&
+          value !== "" &&
+          isNaN(Number(value))
+        ) {
+          await connection.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: `measurements[${i}].${field} must be a valid number`,
+          });
+        }
+      }
+    }
+
+    // =========================================================
+    // 5. Check GRN Exists
+    // =========================================================
+
     const [existingGrn] = await connection.query(
-      `SELECT * FROM freight_tracking_app.goods_receive_notes WHERE id = ?`,
+      `
+        SELECT
+          id,
+          client_id,
+          manufacture_id,
+          forwarder_id,
+          recipient_id,
+          recipient_contact,
+          date,
+          quantity,
+          actual_carton_count,
+          status,
+          comments,
+          created_by
+        FROM freight_tracking_app.goods_receive_notes
+        WHERE id = ?
+        FOR UPDATE
+      `,
       [grnId],
     );
 
     if (existingGrn.length === 0) {
       await connection.rollback();
+
       return res.status(404).json({
         success: false,
         message: "GRN not found",
       });
     }
 
-    // Get selected packing lists
-    const [packingLists] = await connection.query(
+    // =========================================================
+    // 6. Validate GDN
+    // =========================================================
+
+    const [gdnRows] = await connection.query(
       `
-      SELECT id, total_quantity, grn_id
-      FROM freight_tracking_app.packing_list
-      WHERE id IN (?)
+        SELECT
+          id,
+          gdn_no,
+          gdn_grn_ref,
+          status
+        FROM freight_tracking_app.goods_deliver_notes
+        WHERE id = ?
+        FOR UPDATE
       `,
-      [packing_list_ids],
+      [gdnId],
     );
 
-    if (packingLists.length !== packing_list_ids.length) {
+    if (gdnRows.length === 0) {
       await connection.rollback();
+
       return res.status(404).json({
         success: false,
-        message: "One or more packing lists not found",
+        message: "GDN not found",
+        gdn_id: gdnId,
       });
     }
 
-    // Check already assigned packing lists (excluding current GRN)
-    const alreadyAssigned = packingLists.filter(
-      (pl) => pl.grn_id !== null && pl.grn_id !== Number(grnId),
-    );
+    const gdn = gdnRows[0];
 
-    if (alreadyAssigned.length > 0) {
+    // =========================================================
+    // 7. Check GDN GRN Reference
+    // =========================================================
+    // Allow the current GRN to remain assigned.
+    // Reject if another GRN is assigned to this GDN.
+
+    if (
+      gdn.gdn_grn_ref !== null &&
+      gdn.gdn_grn_ref !== undefined &&
+      String(gdn.gdn_grn_ref).trim() !== "" &&
+      Number(gdn.gdn_grn_ref) !== grnId
+    ) {
       await connection.rollback();
+
       return res.status(400).json({
         success: false,
-        message: "Some packing lists are already assigned to another GRN",
-        data: alreadyAssigned.map((i) => i.id),
+        message: "This GDN is already assigned to another GRN",
+        data: {
+          gdn_id: gdn.id,
+          gdn_no: gdn.gdn_no,
+          grn_id: gdn.gdn_grn_ref,
+        },
       });
     }
 
-    // Validate quantity match
-    const totalPackingQty = packingLists.reduce((sum, item) => {
-      return sum + (Number(item.total_quantity) || 0);
+    // =========================================================
+    // 8. Get ALL Packing Lists for This GDN
+    // =========================================================
+
+    const [packingLists] = await connection.query(
+      `
+        SELECT
+          id,
+          packing_list_no,
+          total_quantity,
+          gdn_id,
+          grn_id,
+          status
+        FROM freight_tracking_app.packing_list
+        WHERE gdn_id = ?
+        FOR UPDATE
+      `,
+      [gdnId],
+    );
+
+    // =========================================================
+    // 9. Check Packing Lists Exist
+    // =========================================================
+
+    if (packingLists.length === 0) {
+      await connection.rollback();
+
+      return res.status(400).json({
+        success: false,
+        message: "No packing lists found for this GDN",
+        gdn_id: gdnId,
+        gdn_no: gdn.gdn_no,
+      });
+    }
+
+    // =========================================================
+    // 10. Check Packing Lists Assigned to Another GRN
+    // =========================================================
+
+    const alreadyAssignedPackingLists = packingLists.filter(
+      (pl) =>
+        pl.grn_id !== null &&
+        pl.grn_id !== undefined &&
+        Number(pl.grn_id) !== grnId,
+    );
+
+    if (alreadyAssignedPackingLists.length > 0) {
+      await connection.rollback();
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "One or more packing lists for this GDN are already assigned to another GRN",
+
+        packing_lists: alreadyAssignedPackingLists.map((pl) => ({
+          packing_list_id: pl.id,
+          packing_list_no: pl.packing_list_no,
+          grn_id: pl.grn_id,
+        })),
+      });
+    }
+
+    // =========================================================
+    // 11. Calculate Total Quantity
+    // =========================================================
+
+    const totalPackingQty = packingLists.reduce((sum, pl) => {
+      return sum + (Number(pl.total_quantity) || 0);
     }, 0);
+
+    // =========================================================
+    // 12. Validate GRN Quantity
+    // =========================================================
 
     if (quantityNum !== totalPackingQty) {
       await connection.rollback();
 
       return res.status(400).json({
         success: false,
-        message: "GRN quantity must equal total packing list quantity",
-        grnQuantity: quantityNum,
-        totalPackingListQuantity: totalPackingQty,
+        message:
+          "GRN quantity must equal the total quantity of all packing lists for this GDN",
+
+        gdn_id: gdnId,
+        gdn_no: gdn.gdn_no,
+
+        requested_quantity: quantityNum,
+        packing_list_quantity: totalPackingQty,
+
+        packing_lists: packingLists.map((pl) => ({
+          packing_list_id: pl.id,
+          packing_list_no: pl.packing_list_no,
+          quantity: Number(pl.total_quantity) || 0,
+        })),
       });
     }
 
-    // 🔥 STEP 1: Clear old packing list links
-    await connection.query(
-      `
-      UPDATE freight_tracking_app.packing_list
-      SET grn_id = NULL, updated_by = ?, updated_on = NOW()
-      WHERE grn_id = ?
-      `,
-      [updated_by, grnId],
-    );
+    // =========================================================
+    // 13. Update GRN
+    // =========================================================
 
-    // 🔥 STEP 2: Update GRN
     await connection.query(
       `
-      UPDATE freight_tracking_app.goods_receive_notes
-      SET
-        client_id = ?,
-        manufacture_id = ?,
-        forwarder_id = ?,
-        recipient_id = ?,
-        recipient_contact = ?,
-        date = ?,
-        quantity = ?,
-        actual_carton_count = ?,
-        status = ?,
-        comments = ?,
-        updated_by = ?,
-        updated_on = NOW()
-      WHERE id = ?
+        UPDATE freight_tracking_app.goods_receive_notes
+        SET
+          client_id = ?,
+          manufacture_id = ?,
+          forwarder_id = ?,
+          recipient_id = ?,
+          recipient_contact = ?,
+          date = ?,
+          quantity = ?,
+          actual_carton_count = ?,
+          status = ?,
+          comments = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id = ?
       `,
       [
         client_id,
@@ -664,29 +864,199 @@ exports.updateGoodsReceiveNote = async (req, res) => {
       ],
     );
 
-    // 🔥 STEP 3: Assign new packing lists
+    // =========================================================
+    // 14. Delete Existing GRN Measurements
+    // =========================================================
+
     await connection.query(
       `
-      UPDATE freight_tracking_app.packing_list
-      SET grn_id = ?, updated_by = ?, updated_on = NOW()
-      WHERE id IN (?)
+        DELETE FROM freight_tracking_app.grn_measurements
+        WHERE grn_id = ?
       `,
-      [grnId, updated_by, packing_list_ids],
+      [grnId],
     );
 
+    // =========================================================
+    // 15. Insert Updated GRN Measurements
+    // =========================================================
+
+    if (measurementList.length > 0) {
+      for (const measurement of measurementList) {
+        const {
+          length_cm,
+          width_cm,
+          height_cm,
+          packages,
+          total,
+          uom,
+          cbm,
+          volume,
+        } = measurement;
+
+        await connection.query(
+          `
+            INSERT INTO freight_tracking_app.grn_measurements
+            (
+              grn_id,
+              length_cm,
+              width_cm,
+              height_cm,
+              packages,
+              total,
+              uom,
+              cbm,
+              volume
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            grnId,
+
+            length_cm !== undefined && length_cm !== ""
+              ? Number(length_cm)
+              : null,
+
+            width_cm !== undefined && width_cm !== "" ? Number(width_cm) : null,
+
+            height_cm !== undefined && height_cm !== ""
+              ? Number(height_cm)
+              : null,
+
+            packages !== undefined && packages !== "" ? Number(packages) : null,
+
+            total !== undefined && total !== "" ? Number(total) : null,
+
+            uom || null,
+
+            cbm !== undefined && cbm !== "" ? Number(cbm) : null,
+
+            volume !== undefined && volume !== "" ? Number(volume) : null,
+          ],
+        );
+      }
+    }
+
+    // =========================================================
+    // 16. Get Packing List IDs
+    // =========================================================
+
+    const packingListIds = packingLists.map((pl) => pl.id);
+
+    // =========================================================
+    // 17. Update ALL Packing Lists
+    // =========================================================
+
+    await connection.query(
+      `
+        UPDATE freight_tracking_app.packing_list
+        SET
+          grn_id = ?,
+          status = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE gdn_id = ?
+      `,
+      [grnId, "GRN_OPEN", updated_by, gdnId],
+    );
+
+    // =========================================================
+    // 18. Update GDN
+    // =========================================================
+
+    await connection.query(
+      `
+        UPDATE freight_tracking_app.goods_deliver_notes
+        SET
+          gdn_grn_ref = ?,
+          status = ?,
+          updated_by = ?,
+          updated_on = NOW()
+        WHERE id = ?
+      `,
+      [String(grnId), "GRN_OPEN", updated_by, gdnId],
+    );
+
+    // =========================================================
+    // 19. Commit Transaction
+    // =========================================================
+
     await connection.commit();
+
+    // =========================================================
+    // 20. Response
+    // =========================================================
 
     return res.status(200).json({
       success: true,
       message: "GRN updated successfully",
+
       data: {
         grn_id: grnId,
+        grn_ref: String(grnId),
+
+        gdn_id: gdnId,
+        gdn_no: gdn.gdn_no,
+
         quantity: quantityNum,
-        packing_list_ids,
+
+        packing_list_ids: packingListIds,
+
+        measurements: measurementList.map((measurement) => ({
+          grn_id: grnId,
+
+          length_cm:
+            measurement.length_cm !== undefined && measurement.length_cm !== ""
+              ? Number(measurement.length_cm)
+              : null,
+
+          width_cm:
+            measurement.width_cm !== undefined && measurement.width_cm !== ""
+              ? Number(measurement.width_cm)
+              : null,
+
+          height_cm:
+            measurement.height_cm !== undefined && measurement.height_cm !== ""
+              ? Number(measurement.height_cm)
+              : null,
+
+          packages:
+            measurement.packages !== undefined && measurement.packages !== ""
+              ? Number(measurement.packages)
+              : null,
+
+          total:
+            measurement.total !== undefined && measurement.total !== ""
+              ? Number(measurement.total)
+              : null,
+
+          uom: measurement.uom || null,
+
+          cbm:
+            measurement.cbm !== undefined && measurement.cbm !== ""
+              ? Number(measurement.cbm)
+              : null,
+
+          volume:
+            measurement.volume !== undefined && measurement.volume !== ""
+              ? Number(measurement.volume)
+              : null,
+        })),
+
+        packing_lists: packingLists.map((pl) => ({
+          packing_list_id: pl.id,
+          packing_list_no: pl.packing_list_no,
+          quantity: Number(pl.total_quantity) || 0,
+
+          gdn_id: gdnId,
+          grn_id: grnId,
+          grn_ref: String(grnId),
+        })),
       },
     });
   } catch (error) {
     await connection.rollback();
+
+    console.error("Error updating Goods Receive Note:", error);
 
     return res.status(500).json({
       success: false,
