@@ -14,6 +14,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
       recipient_contact,
       date,
       quantity,
+      actual_carton_count,
       status,
       comments,
       created_by,
@@ -285,12 +286,13 @@ exports.createGoodsReceiveNote = async (req, res) => {
         recipient_contact,
         date,
         quantity,
+        actual_carton_count,
         status,
         comments,
         created_by,
         created_on
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         client_id,
@@ -300,6 +302,7 @@ exports.createGoodsReceiveNote = async (req, res) => {
         recipient_contact,
         date,
         quantityNum,
+        actual_carton_count,
         status,
         comments,
         created_by,
@@ -520,6 +523,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
       recipient_contact,
       date,
       quantity,
+      actual_carton_count,
       status,
       comments,
       updated_by,
@@ -637,6 +641,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         recipient_contact = ?,
         date = ?,
         quantity = ?,
+        actual_carton_count = ?,
         status = ?,
         comments = ?,
         updated_by = ?,
@@ -651,6 +656,7 @@ exports.updateGoodsReceiveNote = async (req, res) => {
         recipient_contact,
         date,
         quantityNum,
+        actual_carton_count,
         status,
         comments,
         updated_by,
@@ -728,6 +734,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
 
         grn.date,
         grn.quantity,
+        grn.actual_carton_count,
         grn.status,
         grn.bill_id,
         grn.comments,
@@ -814,6 +821,7 @@ exports.getAllGoodsReceiveNotes = async (req, res) => {
         recipient.contact_no,
         grn.date,
         grn.quantity,
+        grn.actual_carton_count,
         grn.status,
         grn.bill_id,
         grn.comments,
@@ -935,6 +943,7 @@ exports.getGoodsReceiveNoteById = async (req, res) => {
 
           grn.date,
           grn.quantity,
+          grn.actual_carton_count,
           grn.status,
           grn.bill_id,
           grn.comments,
