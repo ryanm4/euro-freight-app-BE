@@ -144,6 +144,8 @@ CREATE TABLE
         `container_seal_no` VARCHAR(45) NULL,
         `onboard_date` DATETIME NULL,
         `total_freight_cost` DECIMAL(10, 3) NULL,
+        `total_volume` DECIMAL(10, 3) NULL,
+        `total_cost` DECIMAL(10, 3) NULL,
         `created_by` VARCHAR(45) NULL,
         `created_on` DATETIME NULL,
         `updated_by` VARCHAR(45) NULL,
@@ -398,4 +400,15 @@ CREATE TABLE
         PRIMARY KEY (`id`),
         INDEX `grn_idx` (`grn_id` ASC) VISIBLE,
         CONSTRAINT `grn` FOREIGN KEY (`grn_id`) REFERENCES `freight_tracking_app`.`goods_receive_notes` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+    );
+
+CREATE TABLE
+    `freight_tracking_app`.`hbl_air_split_cargo` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        `hbl_id` INT NOT NULL,
+        `eta_date` DATETIME NULL,
+        `carton_count` INT NULL,
+        PRIMARY KEY (`id`),
+        INDEX `hbl_id_idx` (`hbl_id` ASC) VISIBLE,
+        CONSTRAINT `hbl_id` FOREIGN KEY (`hbl_id`) REFERENCES `freight_tracking_app`.`hbl_hawb_tbl` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
     );

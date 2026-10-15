@@ -833,6 +833,24 @@ exports.updateHBL = async (req, res) => {
     }
 
     // ============================================================
+    // 13. UPDATE AIR SPLIT CARGO
+    // ============================================================
+
+    // Validate request data
+    if (!Array.isArray(air_split_cargo)) {
+      throw new Error("air_split_cargo must be an array");
+    }
+
+    // Delete existing air split cargo entries for this HBL
+    await connection.execute(
+      `
+    DELETE FROM freight_tracking_app.hbl_air_split_cargo
+    WHERE hbl_id = ?
+  `,
+      [id],
+    );
+
+    // ============================================================
     // 13. COMMIT
     // ============================================================
 
@@ -1442,7 +1460,6 @@ exports.getHBLById = async (req, res) => {
 
     const query = `
       SELECT
-
         -- =====================================================
         -- HBL
         -- =====================================================
@@ -1482,10 +1499,7 @@ exports.getHBLById = async (req, res) => {
         h.date,
         h.type,
         h.house_bl_no,
-
-        -- Legacy field
         h.shipment_id,
-
         h.planned_vessel_name,
         h.voyage_no,
         h.etd,
@@ -1512,486 +1526,239 @@ exports.getHBLById = async (req, res) => {
         -- SHIPMENTS
         -- =====================================================
 
-        COALESCE(
-          s.shipments,
-          JSON_ARRAY()
-        ) AS shipments,
+        COALESCE(s.shipments, JSON_ARRAY()) AS shipments,
 
         -- =====================================================
         -- PORTS
         -- =====================================================
 
+        COALESCE(p.ports, JSON_ARRAY()) AS ports,
+
+        -- =====================================================
+        -- AIR SPLIT CARGO
+        -- =====================================================
+
         COALESCE(
-          p.ports,
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', ascg.id,
+                'hbl_id', ascg.hbl_id,
+                'eta_date', ascg.eta_date,
+                'carton_count', ascg.carton_count
+              )
+            )
+            FROM freight_tracking_app.hbl_air_split_cargo ascg
+            WHERE ascg.hbl_id = h.id
+          ),
           JSON_ARRAY()
-        ) AS ports
+        ) AS air_split_cargo
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
       -- =====================================================
-      -- CLIENT
+      -- CLIENT / MANUFACTURE / SHIPPER / CONSIGNEE / NOTIFY
       -- =====================================================
 
       LEFT JOIN freight_tracking_app.clients client
         ON h.client_id = client.id
 
-      -- =====================================================
-      -- MANUFACTURE
-      -- =====================================================
-
       LEFT JOIN freight_tracking_app.clients manufacture
         ON h.manufacture_id = manufacture.id
-
-      -- =====================================================
-      -- SHIPPER
-      -- =====================================================
 
       LEFT JOIN freight_tracking_app.clients shipper
         ON h.shipper_id = shipper.id
 
-      -- =====================================================
-      -- CONSIGNEE
-      -- =====================================================
-
       LEFT JOIN freight_tracking_app.clients consignee
         ON h.consignee_id = consignee.id
-
-      -- =====================================================
-      -- NOTIFY
-      -- =====================================================
 
       LEFT JOIN freight_tracking_app.clients notify
         ON h.notify_id = notify.id
 
       -- =====================================================
-      -- HBL
-      --   ↓
-      -- SHIPMENTS
-      --   ↓
-      -- GRNs
-      --   ↓
-      -- GDNs
-      --   ↓
-      -- PACKING LISTS
+      -- SHIPMENTS -> GRNs -> GDNs -> PACKING LISTS
       -- =====================================================
 
       LEFT JOIN (
-
         SELECT
           hs.hbl_id,
 
           JSON_ARRAYAGG(
-
             JSON_OBJECT(
+              -- Shipment
+              'id', shipment.id,
+              'vessel_name', shipment.vessel_name,
+              'status', shipment.status,
+              'voyage_number', shipment.voyage_number,
+              'origin_port', shipment.origin_port,
+              'discharge_port', shipment.discharge_port,
+              'final_place_of_delivery', shipment.final_place_of_delivery,
+              'etd_colombo', shipment.etd_colombo,
+              'eta_discharge_port', shipment.eta_discharge_port,
+              'eta_final_delivery_place', shipment.eta_final_delivery_place,
+              'flight_number', shipment.flight_number,
+              'origin', shipment.origin,
+              'destination', shipment.destination,
+              'etd_origin', shipment.etd_origin,
+              'eta_destination', shipment.eta_destination,
+              'mbl_mawb_no', shipment.mbl_mawb_no,
+              'airline_shipping_line', shipment.airline_shipping_line,
+              'container_number', shipment.container_number,
+              'container_size', shipment.container_size,
+              'final_seal_no', shipment.final_seal_no,
 
-              -- =================================================
-              -- SHIPMENT
-              -- =================================================
-
-              'id',
-                shipment.id,
-
-              'vessel_name',
-                shipment.vessel_name,
-
-              'status',
-                shipment.status,
-
-              'voyage_number',
-                shipment.voyage_number,
-
-              'origin_port',
-                shipment.origin_port,
-
-              'discharge_port',
-                shipment.discharge_port,
-
-              'final_place_of_delivery',
-                shipment.final_place_of_delivery,
-
-              'etd_colombo',
-                shipment.etd_colombo,
-
-              'eta_discharge_port',
-                shipment.eta_discharge_port,
-
-              'eta_final_delivery_place',
-                shipment.eta_final_delivery_place,
-
-              'flight_number',
-                shipment.flight_number,
-
-              'origin',
-                shipment.origin,
-
-              'destination',
-                shipment.destination,
-
-              'etd_origin',
-                shipment.etd_origin,
-
-              'eta_destination',
-                shipment.eta_destination,
-
-              'mbl_mawb_no',
-                shipment.mbl_mawb_no,
-
-              'airline_shipping_line',
-                shipment.airline_shipping_line,
-
-              'container_number',
-                shipment.container_number,
-
-              'container_size',
-                shipment.container_size,
-
-              'final_seal_no',
-                shipment.final_seal_no,
-
-              -- =================================================
               -- GRNs
-              -- =================================================
-
               'grns',
-
               COALESCE(
-
                 (
                   SELECT JSON_ARRAYAGG(
-
                     JSON_OBJECT(
+                      'id', grn.id,
+                      'client_id', grn.client_id,
+                      'manufacture_id', grn.manufacture_id,
+                      'forwarder_id', grn.forwarder_id,
+                      'recipient_id', grn.recipient_id,
+                      'recipient_contact', grn.recipient_contact,
+                      'date', grn.date,
+                      'quantity', grn.quantity,
+                      'bill_id', grn.bill_id,
+                      'shipment_id', grn.shipment_id,
+                      'actual_carton_count', grn.actual_carton_count,
+                      'status', grn.status,
+                      'comments', grn.comments,
 
-                      'id',
-                        grn.id,
-
-                      'client_id',
-                        grn.client_id,
-
-                      'manufacture_id',
-                        grn.manufacture_id,
-
-                      'forwarder_id',
-                        grn.forwarder_id,
-
-                      'recipient_id',
-                        grn.recipient_id,
-
-                      'recipient_contact',
-                        grn.recipient_contact,
-
-                      'date',
-                        grn.date,
-
-                      'quantity',
-                        grn.quantity,
-
-                      'bill_id',
-                        grn.bill_id,
-
-                      'shipment_id',
-                        grn.shipment_id,
-
-                      'actual_carton_count',
-                        grn.actual_carton_count,
-
-                      'status',
-                        grn.status,
-
-                      'comments',
-                        grn.comments,
-
-                      -- =========================================
-                      -- GRN CLIENT
-                      -- =========================================
-
+                      -- GRN client
                       'client',
-
                       JSON_OBJECT(
-                        'id',
-                          grn_client.id,
-                        'name',
-                          grn_client.name,
-                        'address',
-                          grn_client.address
+                        'id', grn_client.id,
+                        'name', grn_client.name,
+                        'address', grn_client.address
                       ),
 
-                      -- =========================================
-                      -- GRN MANUFACTURE
-                      -- =========================================
-
+                      -- GRN manufacture
                       'manufacture',
-
                       JSON_OBJECT(
-                        'id',
-                          grn_manufacture.id,
-                        'name',
-                          grn_manufacture.name,
-                        'address',
-                          grn_manufacture.address
+                        'id', grn_manufacture.id,
+                        'name', grn_manufacture.name,
+                        'address', grn_manufacture.address
                       ),
 
-                      -- =========================================
                       -- GDNs
-                      -- =========================================
-
                       'gdns',
-
                       COALESCE(
-
                         (
                           SELECT JSON_ARRAYAGG(
-
                             JSON_OBJECT(
+                              'id', gdn.id,
+                              'gdn_no', gdn.gdn_no,
+                              'client', gdn_client.name,
+                              'manufacture', gdn_manufacture.name,
+                              'forwarder', gdn_forwarder.name,
+                              'date', gdn.date,
+                              'cartoons', gdn.cartoons,
+                              'actual_cartoons', gdn.actual_cartoons,
+                              'weight', gdn.gross_weight,
+                              'actual_gross_weight', gdn.actual_gross_weight,
+                              'volume', gdn.gross_volume,
+                              'actual_gross_volume', gdn.actual_gross_volume,
+                              'status', gdn.status,
+                              'gdn_grn_ref', gdn.gdn_grn_ref,
+                              'vehicle_no', gdn.vehicle_no,
+                              'driver_id', gdn.driver_id,
+                              'wharf_staff_id', gdn.wharf_staff_id,
+                              'driver_contact_no', gdn.driver_contact_no,
+                              'wharf_contact_no', gdn.wharf_contact_no,
+                              'dispatch_location', gdn.dispatch_location,
+                              'transport_mode', gdn.transport_mode,
+                              'container_no', gdn.container_no,
+                              'container_size', gdn.container_size,
+                              'primary_seal_no', gdn.primary_seal_no,
+                              'secondary_seal_no', gdn.secondary_seal_no,
+                              'custom_doc_status', gdn.custom_doc_status,
+                              'length_cm', gdn.length_cm,
+                              'width_cm', gdn.width_cm,
+                              'height_cm', gdn.height_cm,
 
-                              'id',
-                                gdn.id,
-
-                              'gdn_no',
-                                gdn.gdn_no,
-
-                              'client',
-                                gdn_client.name,
-
-                              'manufacture',
-                                gdn_manufacture.name,
-
-                              'forwarder',
-                                gdn_forwarder.name,
-
-                              'date',
-                                gdn.date,
-
-                              'cartoons',
-                                gdn.cartoons,
-
-                              'actual_cartoons',
-                                gdn.actual_cartoons,
-
-                              'weight',
-                                gdn.gross_weight,
-
-                              'actual_gross_weight',
-                                gdn.actual_gross_weight,
-
-                              'volume',
-                                gdn.gross_volume,
-
-                              'actual_gross_volume',
-                                gdn.actual_gross_volume,
-
-                              'status',
-                                gdn.status,
-
-                              'gdn_grn_ref',
-                                gdn.gdn_grn_ref,
-
-                              'vehicle_no',
-                                gdn.vehicle_no,
-
-                              'driver_id',
-                                gdn.driver_id,
-
-                              'wharf_staff_id',
-                                gdn.wharf_staff_id,
-
-                              'driver_contact_no',
-                                gdn.driver_contact_no,
-
-                              'wharf_contact_no',
-                                gdn.wharf_contact_no,
-
-                              'dispatch_location',
-                                gdn.dispatch_location,
-
-                              'transport_mode',
-                                gdn.transport_mode,
-
-                              'container_no',
-                                gdn.container_no,
-
-                              'container_size',
-                                gdn.container_size,
-
-                              'primary_seal_no',
-                                gdn.primary_seal_no,
-
-                              'secondary_seal_no',
-                                gdn.secondary_seal_no,
-
-                              'custom_doc_status',
-                                gdn.custom_doc_status,
-
-                              'length_cm',
-                                gdn.length_cm,
-
-                              'width_cm',
-                                gdn.width_cm,
-
-                              'height_cm',
-                                gdn.height_cm,
-
-                              -- =================================
-                              -- PACKING LISTS
-                              -- =================================
-
+                              -- Packing lists
                               'packing_lists',
-
                               COALESCE(
-
                                 (
                                   SELECT JSON_ARRAYAGG(
-
                                     JSON_OBJECT(
-
-                                      'id',
-                                        pl.id,
-
-                                      'packing_list_no',
-                                        pl.packing_list_no,
-
-                                      'client',
-                                        pl_client.name,
-
-                                      'manufacturer',
-                                        pl_manufacturer.name,
-
-                                      'forwarder',
-                                        pl_forwarder.name,
-
-                                      'date',
-                                        pl.date,
-
-                                      'gdn_id',
-                                        pl.gdn_id,
-
-                                      'grn_id',
-                                        pl.grn_id,
-
-                                      'total_quantity',
-                                        pl.total_quantity,
-
-                                      'ship_to',
-                                        pl.ship_to,
-
-                                      'document_date',
-                                        pl.document_date,
-
-                                      'total_cartons',
-                                        pl.total_cartons,
-
-                                      'weight_kg',
-                                        pl.total_gross_weight_kg,
-
-                                      'total_gross_weight_kg',
-                                        pl.total_gross_weight_kg,
-
-                                      'total_net_weight_kg',
-                                        pl.total_net_weight_kg,
-
-                                      'total_cbm',
-                                        pl.total_cbm,
-
-                                      'total_volume',
-                                        pl.total_volume,
-
-                                      'shipping_mode',
-                                        pl.shipping_mode,
-
-                                      'file_url',
-                                        pl.file_url,
-
-                                      'status',
-                                        pl.status,
-
-                                      'destination',
-                                        pl.destination,
-
-                                      'created_by',
-                                        pl.created_by,
-
-                                      'created_on',
-                                        pl.created_on,
-
-                                      'updated_by',
-                                        pl.updated_by,
-
-                                      'updated_on',
-                                        pl.updated_on
-
+                                      'id', pl.id,
+                                      'packing_list_no', pl.packing_list_no,
+                                      'client', pl_client.name,
+                                      'manufacturer', pl_manufacturer.name,
+                                      'forwarder', pl_forwarder.name,
+                                      'date', pl.date,
+                                      'gdn_id', pl.gdn_id,
+                                      'grn_id', pl.grn_id,
+                                      'total_quantity', pl.total_quantity,
+                                      'ship_to', pl.ship_to,
+                                      'document_date', pl.document_date,
+                                      'total_cartons', pl.total_cartons,
+                                      'weight_kg', pl.total_gross_weight_kg,
+                                      'total_gross_weight_kg', pl.total_gross_weight_kg,
+                                      'total_net_weight_kg', pl.total_net_weight_kg,
+                                      'total_cbm', pl.total_cbm,
+                                      'total_volume', pl.total_volume,
+                                      'shipping_mode', pl.shipping_mode,
+                                      'file_url', pl.file_url,
+                                      'status', pl.status,
+                                      'destination', pl.destination,
+                                      'created_by', pl.created_by,
+                                      'created_on', pl.created_on,
+                                      'updated_by', pl.updated_by,
+                                      'updated_on', pl.updated_on
                                     )
-
                                   )
-
                                   FROM freight_tracking_app.packing_list pl
 
                                   LEFT JOIN freight_tracking_app.clients pl_client
                                     ON pl.client_id = pl_client.id
 
                                   LEFT JOIN freight_tracking_app.clients pl_manufacturer
-                                    ON pl.manufacturer_id =
-                                       pl_manufacturer.id
+                                    ON pl.manufacturer_id = pl_manufacturer.id
 
                                   LEFT JOIN freight_tracking_app.clients pl_forwarder
-                                    ON pl.forwarder_id =
-                                       pl_forwarder.id
+                                    ON pl.forwarder_id = pl_forwarder.id
 
                                   WHERE pl.gdn_id = gdn.id
-
                                 ),
-
                                 JSON_ARRAY()
-
                               )
-
                             )
-
                           )
-
                           FROM freight_tracking_app.goods_deliver_notes gdn
 
                           LEFT JOIN freight_tracking_app.clients gdn_client
                             ON gdn.client_id = gdn_client.id
 
                           LEFT JOIN freight_tracking_app.clients gdn_manufacture
-                            ON gdn.manufacture_id =
-                               gdn_manufacture.id
+                            ON gdn.manufacture_id = gdn_manufacture.id
 
                           LEFT JOIN freight_tracking_app.clients gdn_forwarder
-                            ON gdn.forwarder_id =
-                               gdn_forwarder.id
+                            ON gdn.forwarder_id = gdn_forwarder.id
 
-                          WHERE
-                            CAST(gdn.gdn_grn_ref AS UNSIGNED) = grn.id
-
+                          WHERE CAST(gdn.gdn_grn_ref AS UNSIGNED) = grn.id
                         ),
-
                         JSON_ARRAY()
-
                       )
-
                     )
-
                   )
-
                   FROM freight_tracking_app.goods_receive_notes grn
 
                   LEFT JOIN freight_tracking_app.clients grn_client
                     ON grn.client_id = grn_client.id
 
                   LEFT JOIN freight_tracking_app.clients grn_manufacture
-                    ON grn.manufacture_id =
-                       grn_manufacture.id
+                    ON grn.manufacture_id = grn_manufacture.id
 
                   WHERE grn.shipment_id = shipment.id
-
                 ),
-
                 JSON_ARRAY()
-
               )
-
             )
-
           ) AS shipments
 
         FROM freight_tracking_app.hbl_shipments hs
@@ -2000,9 +1767,7 @@ exports.getHBLById = async (req, res) => {
           ON hs.shipment_id = shipment.id
 
         GROUP BY hs.hbl_id
-
       ) s
-
         ON s.hbl_id = h.id
 
       -- =====================================================
@@ -2010,50 +1775,27 @@ exports.getHBLById = async (req, res) => {
       -- =====================================================
 
       LEFT JOIN (
-
         SELECT
-
           hbl_hawb_id,
 
           JSON_ARRAYAGG(
-
             JSON_OBJECT(
-
-              'id',
-                id,
-
-              'port',
-                port,
-
-              'status',
-                status,
-
-              'created_by',
-                created_by,
-
-              'created_on',
-                created_on,
-
-              'updated_by',
-                updated_by,
-
-              'updated_on',
-                updated_on
-
+              'id', id,
+              'port', port,
+              'status', status,
+              'created_by', created_by,
+              'created_on', created_on,
+              'updated_by', updated_by,
+              'updated_on', updated_on
             )
-
           ) AS ports
 
         FROM freight_tracking_app.multi_ports
-
         GROUP BY hbl_hawb_id
-
       ) p
-
         ON p.hbl_hawb_id = h.id
 
       WHERE h.id = ?
-
       LIMIT 1
     `;
 
@@ -2068,9 +1810,9 @@ exports.getHBLById = async (req, res) => {
 
     const row = rows[0];
 
-    // =========================================================
+    // =====================================================
     // PARSE JSON
-    // =========================================================
+    // =====================================================
 
     const parseJson = (value, fallback = {}) => {
       if (value === null || value === undefined) {
@@ -2095,12 +1837,8 @@ exports.getHBLById = async (req, res) => {
     row.notify = parseJson(row.notify);
 
     row.shipments = parseJson(row.shipments, []);
-
     row.ports = parseJson(row.ports, []);
-
-    // =========================================================
-    // RESPONSE
-    // =========================================================
+    row.air_split_cargo = parseJson(row.air_split_cargo, []);
 
     return res.status(200).json({
       success: true,
@@ -2115,5 +1853,951 @@ exports.getHBLById = async (req, res) => {
       message: "Error fetching HBL",
       error: error.message,
     });
+  }
+};
+//Get HBL data with PO details
+exports.getHBL_withPO = async (req, res) => {
+  const { type, status } = req.query;
+
+  try {
+    let query = `
+      SELECT
+        -- =====================================================
+        -- HBL
+        -- =====================================================
+
+        h.id,
+
+        JSON_OBJECT(
+          'id', client.id,
+          'name', client.name,
+          'address', client.address
+        ) AS client,
+
+        JSON_OBJECT(
+          'id', manufacture.id,
+          'name', manufacture.name,
+          'address', manufacture.address
+        ) AS manufacture,
+
+        JSON_OBJECT(
+          'id', shipper.id,
+          'name', shipper.name,
+          'address', shipper.address
+        ) AS shipper,
+
+        JSON_OBJECT(
+          'id', consignee.id,
+          'name', consignee.name,
+          'address', consignee.address
+        ) AS consignee,
+
+        JSON_OBJECT(
+          'id', notify.id,
+          'name', notify.name,
+          'address', notify.address
+        ) AS notify,
+
+        h.date,
+        h.type,
+        h.house_bl_no,
+        h.shipment_id,
+        h.planned_vessel_name,
+        h.voyage_no,
+        h.etd,
+        h.eta,
+        h.actual_etd,
+        h.actual_eta,
+        h.arrival_port,
+        h.inland_location,
+        h.mbl_mawb_no,
+        h.status,
+        h.no_pieces,
+        h.gross_weight,
+        h.chargeable_weight,
+        h.cbm,
+        h.container_seal_no,
+        h.onboard_date,
+        h.total_freight_cost,
+        h.total_volume,
+        h.total_cost,
+        h.created_by,
+        h.created_on,
+        h.updated_by,
+        h.updated_on,
+
+        -- =====================================================
+        -- SHIPMENTS
+        -- =====================================================
+
+        COALESCE(
+          s.shipments,
+          JSON_ARRAY()
+        ) AS shipments,
+
+        -- =====================================================
+        -- MULTI PORTS
+        -- =====================================================
+
+        COALESCE(
+          p.ports,
+          JSON_ARRAY()
+        ) AS ports
+
+      FROM freight_tracking_app.hbl_hawb_tbl h
+
+      -- =====================================================
+      -- CLIENT DETAILS
+      -- =====================================================
+
+      LEFT JOIN freight_tracking_app.clients client
+        ON h.client_id = client.id
+
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON h.manufacture_id = manufacture.id
+
+      LEFT JOIN freight_tracking_app.clients shipper
+        ON h.shipper_id = shipper.id
+
+      LEFT JOIN freight_tracking_app.clients consignee
+        ON h.consignee_id = consignee.id
+
+      LEFT JOIN freight_tracking_app.clients notify
+        ON h.notify_id = notify.id
+
+      -- =====================================================
+      -- HBL -> SHIPMENTS -> GRNs -> GDNs -> PACKING LISTS
+      -- =====================================================
+
+      LEFT JOIN (
+        SELECT
+          hs.hbl_id,
+
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              -- =============================================
+              -- SHIPMENT
+              -- =============================================
+
+              'id', sh.id,
+              'vessel_name', sh.vessel_name,
+              'status', sh.status,
+              'voyage_number', sh.voyage_number,
+              'origin_port', sh.origin_port,
+              'discharge_port', sh.discharge_port,
+              'final_place_of_delivery',
+                sh.final_place_of_delivery,
+              'etd_colombo', sh.etd_colombo,
+              'eta_discharge_port',
+                sh.eta_discharge_port,
+              'eta_final_delivery_place',
+                sh.eta_final_delivery_place,
+              'flight_number', sh.flight_number,
+              'origin', sh.origin,
+              'destination', sh.destination,
+              'etd_origin', sh.etd_origin,
+              'eta_destination', sh.eta_destination,
+              'mbl_mawb_no', sh.mbl_mawb_no,
+              'airline_shipping_line',
+                sh.airline_shipping_line,
+              'container_number',
+                sh.container_number,
+              'container_size',
+                sh.container_size,
+              'final_seal_no',
+                sh.final_seal_no,
+
+              -- =============================================
+              -- GRNs
+              -- =============================================
+
+              'grns',
+
+              COALESCE(
+                (
+                  SELECT JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                      'id', grn.id,
+                      'client_id', grn.client_id,
+                      'manufacture_id',
+                        grn.manufacture_id,
+                      'forwarder_id',
+                        grn.forwarder_id,
+                      'recipient_id',
+                        grn.recipient_id,
+                      'recipient_contact',
+                        grn.recipient_contact,
+                      'date', grn.date,
+                      'quantity', grn.quantity,
+                      'bill_id', grn.bill_id,
+                      'shipment_id',
+                        grn.shipment_id,
+                      'actual_carton_count',
+                        grn.actual_carton_count,
+                      'status', grn.status,
+                      'comments', grn.comments,
+
+                      -- =====================================
+                      -- GRN CLIENT
+                      -- =====================================
+
+                      'client',
+
+                      JSON_OBJECT(
+                        'id', grnClient.id,
+                        'name', grnClient.name,
+                        'address', grnClient.address
+                      ),
+
+                      -- =====================================
+                      -- GRN MANUFACTURE
+                      -- =====================================
+
+                      'manufacture',
+
+                      JSON_OBJECT(
+                        'id', grnManufacture.id,
+                        'name', grnManufacture.name,
+                        'address', grnManufacture.address
+                      ),
+
+                      -- =====================================
+                      -- GDNs
+                      -- =====================================
+
+                      'gdns',
+
+                      COALESCE(
+                        (
+                          SELECT JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                              'id', gdn.id,
+                              'gdn_no', gdn.gdn_no,
+                              'client_id', gdn.client_id,
+                              'manufacture_id',
+                                gdn.manufacture_id,
+                              'forwarder_id',
+                                gdn.forwarder_id,
+                              'date', gdn.date,
+                              'cartoons', gdn.cartoons,
+                              'actual_cartoons',
+                                gdn.actual_cartoons,
+                              'gross_weight',
+                                gdn.gross_weight,
+                              'actual_gross_weight',
+                                gdn.actual_gross_weight,
+                              'gross_volume',
+                                gdn.gross_volume,
+                              'actual_gross_volume',
+                                gdn.actual_gross_volume,
+                              'status', gdn.status,
+                              'gdn_grn_ref',
+                                gdn.gdn_grn_ref,
+                              'vehicle_no',
+                                gdn.vehicle_no,
+                              'driver_id',
+                                gdn.driver_id,
+                              'wharf_staff_id',
+                                gdn.wharf_staff_id,
+                              'driver_contact_no',
+                                gdn.driver_contact_no,
+                              'wharf_contact_no',
+                                gdn.wharf_contact_no,
+                              'dispatch_location',
+                                gdn.dispatch_location,
+                              'transport_mode',
+                                gdn.transport_mode,
+                              'container_no',
+                                gdn.container_no,
+                              'container_size',
+                                gdn.container_size,
+                              'primary_seal_no',
+                                gdn.primary_seal_no,
+                              'secondary_seal_no',
+                                gdn.secondary_seal_no,
+                              'custom_doc_status',
+                                gdn.custom_doc_status,
+                              'length_cm',
+                                gdn.length_cm,
+                              'width_cm',
+                                gdn.width_cm,
+                              'height_cm',
+                                gdn.height_cm,
+
+                              -- =============================
+                              -- PACKING LISTS
+                              -- =============================
+
+                              'packing_lists',
+
+                              COALESCE(
+                                (
+                                  SELECT JSON_ARRAYAGG(
+                                    JSON_OBJECT(
+                                      'id', pl.id,
+                                      'packing_list_no',
+                                        pl.packing_list_no,
+                                      'client_id',
+                                        pl.client_id,
+                                      'manufacturer_id',
+                                        pl.manufacturer_id,
+                                      'forwarder_id',
+                                        pl.forwarder_id,
+                                      'date', pl.date,
+                                      'gdn_id', pl.gdn_id,
+                                      'grn_id', pl.grn_id,
+                                      'total_quantity',
+                                        pl.total_quantity,
+                                      'ship_to',
+                                        pl.ship_to,
+                                      'document_date',
+                                        pl.document_date,
+                                      'total_cartons',
+                                        pl.total_cartons,
+                                      'total_gross_weight_kg',
+                                        pl.total_gross_weight_kg,
+                                      'total_net_weight_kg',
+                                        pl.total_net_weight_kg,
+                                      'total_cbm',
+                                        pl.total_cbm,
+                                      'total_volume',
+                                        pl.total_volume,
+                                      'shipping_mode',
+                                        pl.shipping_mode,
+                                      'file_url',
+                                        pl.file_url,
+                                      'status',
+                                        pl.status,
+                                      'destination',
+                                        pl.destination,
+                                      'created_by',
+                                        pl.created_by,
+                                      'created_on',
+                                        pl.created_on,
+                                      'updated_by',
+                                        pl.updated_by,
+                                      'updated_on',
+                                        pl.updated_on
+                                    )
+                                  )
+
+                                  FROM freight_tracking_app.packing_list pl
+
+                                  WHERE pl.gdn_id = gdn.id
+                                ),
+                                JSON_ARRAY()
+                              )
+                            )
+                          )
+
+                          FROM freight_tracking_app.goods_deliver_notes gdn
+
+                          WHERE
+                            gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
+                        ),
+                        JSON_ARRAY()
+                      )
+                    )
+                  )
+
+                  FROM freight_tracking_app.goods_receive_notes grn
+
+                  LEFT JOIN freight_tracking_app.clients grnClient
+                    ON grn.client_id = grnClient.id
+
+                  LEFT JOIN freight_tracking_app.clients grnManufacture
+                    ON grn.manufacture_id = grnManufacture.id
+
+                  WHERE grn.shipment_id = sh.id
+                ),
+                JSON_ARRAY()
+              )
+            )
+          ) AS shipments
+
+        FROM freight_tracking_app.hbl_shipments hs
+
+        INNER JOIN freight_tracking_app.shipments sh
+          ON hs.shipment_id = sh.id
+
+        GROUP BY hs.hbl_id
+
+      ) s
+        ON s.hbl_id = h.id
+
+      -- =====================================================
+      -- MULTI PORTS
+      -- =====================================================
+
+      LEFT JOIN (
+        SELECT
+          hbl_hawb_id,
+
+          JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', id,
+              'port', port,
+              'status', status,
+              'created_by', created_by,
+              'created_on', created_on,
+              'updated_by', updated_by,
+              'updated_on', updated_on
+            )
+          ) AS ports
+
+        FROM freight_tracking_app.multi_ports
+
+        GROUP BY hbl_hawb_id
+
+      ) p
+        ON p.hbl_hawb_id = h.id
+    `;
+
+    // =========================================================
+    // DYNAMIC FILTERS
+    // =========================================================
+
+    const params = [];
+    const filters = [];
+
+    if (type) {
+      filters.push("h.type = ?");
+      params.push(type);
+    }
+
+    if (status) {
+      filters.push("h.status = ?");
+      params.push(status);
+    }
+
+    if (filters.length > 0) {
+      query += ` WHERE ${filters.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY h.id DESC`;
+
+    // =========================================================
+    // FETCH HBL DATA
+    // =========================================================
+
+    const [rows] = await db.query(query, params);
+
+    // =========================================================
+    // FETCH PO DETAILS FOR EACH HBL
+    // =========================================================
+
+    const hblIds = rows.map((row) => row.id);
+
+    let poRows = [];
+
+    if (hblIds.length > 0) {
+      const placeholders = hblIds.map(() => "?").join(",");
+
+      const poQuery = `
+    SELECT
+      hs.hbl_id,
+      pli.poNumber AS po_number,
+      COALESCE(SUM(pli.ctn), 0) AS carton_count
+
+    FROM freight_tracking_app.hbl_shipments hs
+
+    -- HBL -> SHIPMENT -> GRN
+    INNER JOIN freight_tracking_app.goods_receive_notes grn
+      ON grn.shipment_id = hs.shipment_id
+
+    -- GRN -> GDN
+    INNER JOIN freight_tracking_app.goods_deliver_notes gdn
+      ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
+
+    -- GDN -> PACKING LIST
+    INNER JOIN freight_tracking_app.packing_list pl
+      ON pl.gdn_id = gdn.id
+
+    -- PACKING LIST -> PACKING LIST ITEMS
+    INNER JOIN freight_tracking_app.packing_list_items pli
+      ON pli.shipment_id = pl.id
+
+    WHERE hs.hbl_id IN (${placeholders})
+      AND pli.poNumber IS NOT NULL
+      AND pli.poNumber <> ''
+
+    GROUP BY
+      hs.hbl_id,
+      pli.poNumber
+
+    ORDER BY
+      hs.hbl_id,
+      pli.poNumber
+  `;
+
+      [poRows] = await db.query(poQuery, hblIds);
+    }
+
+    // =========================================================
+    // GROUP PO DETAILS BY HBL
+    // =========================================================
+
+    const poByHbl = new Map();
+
+    for (const po of poRows) {
+      if (!poByHbl.has(po.hbl_id)) {
+        poByHbl.set(po.hbl_id, []);
+      }
+
+      poByHbl.get(po.hbl_id).push({
+        po_number: po.po_number,
+        carton_count: Number(po.carton_count),
+      });
+    }
+
+    // =========================================================
+    // FORMAT JSON FIELDS
+    // =========================================================
+
+    const parseJSON = (value, fallback = null) => {
+      if (value === null || value === undefined) {
+        return fallback;
+      }
+
+      if (typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch (error) {
+          return fallback;
+        }
+      }
+
+      return value;
+    };
+
+    const formattedRows = rows.map((row) => ({
+      ...row,
+
+      client: parseJSON(row.client),
+      manufacture: parseJSON(row.manufacture),
+      shipper: parseJSON(row.shipper),
+      consignee: parseJSON(row.consignee),
+      notify: parseJSON(row.notify),
+
+      shipments: parseJSON(row.shipments, []),
+      ports: parseJSON(row.ports, []),
+
+      // NEW: PO DETAILS
+      po_details: poByHbl.get(row.id) || [],
+    }));
+
+    // =========================================================
+    // RESPONSE
+    // =========================================================
+
+    return res.status(200).json({
+      success: true,
+      message: "HBL list fetched successfully",
+      data: formattedRows,
+    });
+  } catch (error) {
+    console.error("Get All HBL Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching HBL list",
+      error: error.message,
+    });
+  }
+};
+
+//Update Freight Cost & Volume for HBL
+exports.updateHBLTotals = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { total_cost, total_volume } = req.body;
+
+    // Validate HBL ID
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid HBL ID is required",
+      });
+    }
+
+    // Validate request body
+    if (total_cost === undefined && total_volume === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one of total_cost or total_volume is required",
+      });
+    }
+
+    // Validate numeric values
+    for (const [field, value] of Object.entries({
+      total_cost,
+      total_volume,
+    })) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        (value === "" || !Number.isFinite(Number(value)))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} must be a valid number or null`,
+        });
+      }
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (total_cost !== undefined) {
+      updates.push("total_cost = ?");
+      values.push(total_cost === null ? null : Number(total_cost));
+    }
+
+    if (total_volume !== undefined) {
+      updates.push("total_volume = ?");
+      values.push(total_volume === null ? null : Number(total_volume));
+    }
+
+    updates.push("updated_on = NOW()");
+    values.push(Number(id));
+
+    const [result] = await db.query(
+      `UPDATE freight_tracking_app.hbl_hawb_tbl
+       SET ${updates.join(", ")}
+       WHERE id = ?`,
+      values,
+    );
+
+    if (result.affectedRows === 0) {
+      const [rows] = await db.query(
+        `SELECT id
+         FROM freight_tracking_app.hbl_hawb_tbl
+         WHERE id = ?`,
+        [Number(id)],
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "HBL not found",
+        });
+      }
+    }
+
+    // Return the updated HBL totals
+    const [rows] = await db.query(
+      `SELECT id, total_cost, total_volume
+       FROM freight_tracking_app.hbl_hawb_tbl
+       WHERE id = ?`,
+      [Number(id)],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "HBL totals updated successfully",
+      data: rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating HBL totals:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update HBL totals",
+      error: error.message,
+    });
+  }
+};
+
+//Split cargo for AIR shipments
+exports.createAirSplitCargo = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const { hbl_id, air_split_cargo } = req.body;
+
+    // 1. Validate request
+    if (!hbl_id || !Number.isInteger(Number(hbl_id)) || Number(hbl_id) <= 0) {
+      throw new Error("A valid hbl_id is required");
+    }
+
+    if (!Array.isArray(air_split_cargo) || air_split_cargo.length === 0) {
+      throw new Error("air_split_cargo must be a non-empty array");
+    }
+
+    // 2. Check whether HBL exists
+    const [hblRows] = await connection.execute(
+      `
+        SELECT id
+        FROM freight_tracking_app.hbl_hawb_tbl
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [Number(hbl_id)],
+    );
+
+    if (hblRows.length === 0) {
+      throw new Error("HBL not found");
+    }
+
+    // 3. Validate and prepare cargo entries
+    const cargoValues = air_split_cargo.map((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error(`Invalid air split cargo entry at index ${index}`);
+      }
+
+      let cartonCount = item.carton_count;
+
+      if (
+        cartonCount === "" ||
+        cartonCount === undefined ||
+        cartonCount === null
+      ) {
+        cartonCount = null;
+      } else {
+        cartonCount = Number(cartonCount);
+
+        if (!Number.isInteger(cartonCount) || cartonCount < 0) {
+          throw new Error(
+            `carton_count at index ${index} must be a non-negative integer or null`,
+          );
+        }
+      }
+
+      let etaDate = item.eta_date || null;
+
+      if (etaDate !== null && Number.isNaN(Date.parse(etaDate))) {
+        throw new Error(`Invalid eta_date at index ${index}`);
+      }
+
+      return [Number(hbl_id), etaDate, cartonCount];
+    });
+
+    // 4. Insert multiple cargo entries
+    const [insertResult] = await connection.query(
+      `
+        INSERT INTO freight_tracking_app.hbl_air_split_cargo (
+          hbl_id,
+          eta_date,
+          carton_count
+        )
+        VALUES ?
+      `,
+      [cargoValues],
+    );
+
+    // 5. Retrieve inserted entries
+    const firstInsertedId = insertResult.insertId;
+
+    const [insertedRows] = await connection.execute(
+      `
+        SELECT
+          id,
+          hbl_id,
+          eta_date,
+          carton_count
+        FROM freight_tracking_app.hbl_air_split_cargo
+        WHERE hbl_id = ?
+          AND id >= ?
+        ORDER BY id ASC
+      `,
+      [Number(hbl_id), firstInsertedId],
+    );
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Air split cargo entries created successfully",
+      data: {
+        hbl_id: Number(hbl_id),
+        inserted_count: insertResult.affectedRows,
+        air_split_cargo: insertedRows,
+      },
+    });
+  } catch (error) {
+    await connection.rollback();
+
+    console.error("Create Air Split Cargo Error:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Error creating air split cargo entries",
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+//Update Split cargo for AIR shipments
+
+exports.updateAirSplitCargo = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const hbl_id = Number(req.params.id);
+    const { air_split_cargo } = req.body;
+
+    if (!Number.isInteger(hbl_id) || hbl_id <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid HBL ID",
+      });
+    }
+
+    if (!Array.isArray(air_split_cargo)) {
+      return res.status(400).json({
+        success: false,
+        message: "air_split_cargo must be an array",
+      });
+    }
+
+    await connection.beginTransaction();
+
+    // Check HBL exists
+    const [hblRows] = await connection.execute(
+      `SELECT id
+       FROM freight_tracking_app.hbl_hawb_tbl
+       WHERE id = ?`,
+      [hbl_id],
+    );
+
+    if (hblRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "HBL not found",
+      });
+    }
+
+    // Fetch existing cargo records for this HBL
+    const [existingRows] = await connection.execute(
+      `SELECT id
+       FROM freight_tracking_app.hbl_air_split_cargo
+       WHERE hbl_id = ?
+       FOR UPDATE`,
+      [hbl_id],
+    );
+
+    const existingIds = new Set(existingRows.map((row) => Number(row.id)));
+
+    const receivedIds = new Set();
+
+    // Validate IDs and prevent duplicate IDs
+    for (const cargo of air_split_cargo) {
+      if (cargo.id != null) {
+        const cargoId = Number(cargo.id);
+
+        if (!Number.isInteger(cargoId) || !existingIds.has(cargoId)) {
+          await connection.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: `Cargo ID ${cargo.id} does not belong to HBL ${hbl_id}`,
+          });
+        }
+
+        if (receivedIds.has(cargoId)) {
+          await connection.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate cargo ID: ${cargoId}`,
+          });
+        }
+
+        receivedIds.add(cargoId);
+      }
+
+      if (cargo.carton_count != null) {
+        const count = Number(cargo.carton_count);
+
+        if (!Number.isInteger(count) || count < 0) {
+          await connection.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: "carton_count must be a non-negative integer",
+          });
+        }
+      }
+    }
+
+    // Update existing rows; insert rows without IDs
+    for (const cargo of air_split_cargo) {
+      const { id, eta_date, carton_count } = cargo;
+
+      if (id != null) {
+        await connection.execute(
+          `UPDATE freight_tracking_app.hbl_air_split_cargo
+           SET eta_date = ?, carton_count = ?
+           WHERE id = ? AND hbl_id = ?`,
+          [
+            eta_date ?? null,
+            carton_count == null ? null : Number(carton_count),
+            Number(id),
+            hbl_id,
+          ],
+        );
+      } else {
+        await connection.execute(
+          `INSERT INTO freight_tracking_app.hbl_air_split_cargo
+            (hbl_id, eta_date, carton_count)
+           VALUES (?, ?, ?)`,
+          [
+            hbl_id,
+            eta_date ?? null,
+            carton_count == null ? null : Number(carton_count),
+          ],
+        );
+      }
+    }
+
+    // Delete existing records omitted from the request.
+    // New items have no ID, so they do not affect this comparison.
+    const idsToDelete = [...existingIds].filter(
+      (existingId) => !receivedIds.has(existingId),
+    );
+
+    if (idsToDelete.length > 0) {
+      const placeholders = idsToDelete.map(() => "?").join(",");
+
+      await connection.execute(
+        `DELETE FROM freight_tracking_app.hbl_air_split_cargo
+         WHERE hbl_id = ?
+         AND id IN (${placeholders})`,
+        [hbl_id, ...idsToDelete],
+      );
+    }
+
+    await connection.commit();
+
+    // Return the final records
+    const [updatedRows] = await connection.execute(
+      `SELECT id, hbl_id, eta_date, carton_count
+       FROM freight_tracking_app.hbl_air_split_cargo
+       WHERE hbl_id = ?
+       ORDER BY id`,
+      [hbl_id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Air split cargo updated successfully",
+      data: updatedRows,
+    });
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+
+    console.error("Update Air Split Cargo Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Error updating air split cargo",
+      error: error.message,
+    });
+  } finally {
+    connection.release();
   }
 };
