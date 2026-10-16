@@ -1856,16 +1856,32 @@ exports.getHBLById = async (req, res) => {
   }
 };
 //Get HBL data with PO details
+
 exports.getHBL_withPO = async (req, res) => {
   const { type, status } = req.query;
 
   try {
+    // =====================================================
+    // VALIDATE QUERY PARAMETERS
+    // =====================================================
+
+    const normalizedType =
+      typeof type === "string" ? type.trim().toLowerCase() : null;
+
+    if (type !== undefined && !["sea", "air"].includes(normalizedType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid type. Allowed values are 'sea' or 'air'.",
+      });
+    }
+    
+    // =====================================================
+    // MAIN HBL QUERY
+    // =====================================================
+
     let query = `
       SELECT
-        -- =====================================================
         -- HBL
-        -- =====================================================
-
         h.id,
 
         JSON_OBJECT(
@@ -1926,19 +1942,13 @@ exports.getHBL_withPO = async (req, res) => {
         h.updated_by,
         h.updated_on,
 
-        -- =====================================================
         -- SHIPMENTS
-        -- =====================================================
-
         COALESCE(
           s.shipments,
           JSON_ARRAY()
         ) AS shipments,
 
-        -- =====================================================
         -- MULTI PORTS
-        -- =====================================================
-
         COALESCE(
           p.ports,
           JSON_ARRAY()
@@ -1946,10 +1956,7 @@ exports.getHBL_withPO = async (req, res) => {
 
       FROM freight_tracking_app.hbl_hawb_tbl h
 
-      -- =====================================================
       -- CLIENT DETAILS
-      -- =====================================================
-
       LEFT JOIN freight_tracking_app.clients client
         ON h.client_id = client.id
 
@@ -1975,10 +1982,7 @@ exports.getHBL_withPO = async (req, res) => {
 
           JSON_ARRAYAGG(
             JSON_OBJECT(
-              -- =============================================
               -- SHIPMENT
-              -- =============================================
-
               'id', sh.id,
               'vessel_name', sh.vessel_name,
               'status', sh.status,
@@ -2037,10 +2041,7 @@ exports.getHBL_withPO = async (req, res) => {
                       'status', grn.status,
                       'comments', grn.comments,
 
-                      -- =====================================
                       -- GRN CLIENT
-                      -- =====================================
-
                       'client',
 
                       JSON_OBJECT(
@@ -2049,10 +2050,7 @@ exports.getHBL_withPO = async (req, res) => {
                         'address', grnClient.address
                       ),
 
-                      -- =====================================
                       -- GRN MANUFACTURE
-                      -- =====================================
-
                       'manufacture',
 
                       JSON_OBJECT(
@@ -2253,18 +2251,22 @@ exports.getHBL_withPO = async (req, res) => {
         ON p.hbl_hawb_id = h.id
     `;
 
-    // =========================================================
+    // =====================================================
     // DYNAMIC FILTERS
-    // =========================================================
+    // =====================================================
 
     const params = [];
     const filters = [];
 
-    if (type) {
-      filters.push("h.type = ?");
-      params.push(type);
+    // SEA -> FCL + LCL
+    // AIR -> AIR
+    if (normalizedType === "sea") {
+      filters.push("UPPER(TRIM(h.type)) IN ('FCL', 'LCL', 'SEA')");
+    } else if (normalizedType === "air") {
+      filters.push("UPPER(TRIM(h.type)) = 'AIR'");
     }
 
+    // STATUS FILTER
     if (status) {
       filters.push("h.status = ?");
       params.push(status);
@@ -2276,15 +2278,15 @@ exports.getHBL_withPO = async (req, res) => {
 
     query += ` ORDER BY h.id DESC`;
 
-    // =========================================================
+    // =====================================================
     // FETCH HBL DATA
-    // =========================================================
+    // =====================================================
 
     const [rows] = await db.query(query, params);
 
-    // =========================================================
+    // =====================================================
     // FETCH PO DETAILS FOR EACH HBL
-    // =========================================================
+    // =====================================================
 
     const hblIds = rows.map((row) => row.id);
 
@@ -2294,48 +2296,48 @@ exports.getHBL_withPO = async (req, res) => {
       const placeholders = hblIds.map(() => "?").join(",");
 
       const poQuery = `
-    SELECT
-      hs.hbl_id,
-      pli.poNumber AS po_number,
-      COALESCE(SUM(pli.ctn), 0) AS carton_count
+        SELECT
+          hs.hbl_id,
+          pli.poNumber AS po_number,
+          COALESCE(SUM(pli.ctn), 0) AS carton_count
 
-    FROM freight_tracking_app.hbl_shipments hs
+        FROM freight_tracking_app.hbl_shipments hs
 
-    -- HBL -> SHIPMENT -> GRN
-    INNER JOIN freight_tracking_app.goods_receive_notes grn
-      ON grn.shipment_id = hs.shipment_id
+        -- HBL -> SHIPMENT -> GRN
+        INNER JOIN freight_tracking_app.goods_receive_notes grn
+          ON grn.shipment_id = hs.shipment_id
 
-    -- GRN -> GDN
-    INNER JOIN freight_tracking_app.goods_deliver_notes gdn
-      ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
+        -- GRN -> GDN
+        INNER JOIN freight_tracking_app.goods_deliver_notes gdn
+          ON gdn.gdn_grn_ref = CAST(grn.id AS CHAR)
 
-    -- GDN -> PACKING LIST
-    INNER JOIN freight_tracking_app.packing_list pl
-      ON pl.gdn_id = gdn.id
+        -- GDN -> PACKING LIST
+        INNER JOIN freight_tracking_app.packing_list pl
+          ON pl.gdn_id = gdn.id
 
-    -- PACKING LIST -> PACKING LIST ITEMS
-    INNER JOIN freight_tracking_app.packing_list_items pli
-      ON pli.shipment_id = pl.id
+        -- PACKING LIST -> PACKING LIST ITEMS
+        INNER JOIN freight_tracking_app.packing_list_items pli
+          ON pli.shipment_id = pl.id
 
-    WHERE hs.hbl_id IN (${placeholders})
-      AND pli.poNumber IS NOT NULL
-      AND pli.poNumber <> ''
+        WHERE hs.hbl_id IN (${placeholders})
+          AND pli.poNumber IS NOT NULL
+          AND pli.poNumber <> ''
 
-    GROUP BY
-      hs.hbl_id,
-      pli.poNumber
+        GROUP BY
+          hs.hbl_id,
+          pli.poNumber
 
-    ORDER BY
-      hs.hbl_id,
-      pli.poNumber
-  `;
+        ORDER BY
+          hs.hbl_id,
+          pli.poNumber
+      `;
 
       [poRows] = await db.query(poQuery, hblIds);
     }
 
-    // =========================================================
+    // =====================================================
     // GROUP PO DETAILS BY HBL
-    // =========================================================
+    // =====================================================
 
     const poByHbl = new Map();
 
@@ -2350,9 +2352,9 @@ exports.getHBL_withPO = async (req, res) => {
       });
     }
 
-    // =========================================================
+    // =====================================================
     // FORMAT JSON FIELDS
-    // =========================================================
+    // =====================================================
 
     const parseJSON = (value, fallback = null) => {
       if (value === null || value === undefined) {
@@ -2382,13 +2384,12 @@ exports.getHBL_withPO = async (req, res) => {
       shipments: parseJSON(row.shipments, []),
       ports: parseJSON(row.ports, []),
 
-      // NEW: PO DETAILS
       po_details: poByHbl.get(row.id) || [],
     }));
 
-    // =========================================================
+    // =====================================================
     // RESPONSE
-    // =========================================================
+    // =====================================================
 
     return res.status(200).json({
       success: true,
