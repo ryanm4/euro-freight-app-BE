@@ -448,8 +448,9 @@ exports.updateGDN = async (req, res) => {
 };
 
 // Get All Goods Deliver Receive Notes
+
 exports.getAllGDN = async (req, res) => {
-  const { status } = req.query;
+  const { status, shipping_type } = req.query;
 
   try {
     let query = `
@@ -460,6 +461,17 @@ exports.getAllGDN = async (req, res) => {
         client.name AS client_name,
         manufacture.name AS manufacture_name,
         forwarder.name AS forwarder_name,
+
+        -- Shipping type from associated packing lists
+        (
+          SELECT GROUP_CONCAT(
+            DISTINCT p.shipping_mode
+            ORDER BY p.shipping_mode
+            SEPARATOR ','
+          )
+          FROM freight_tracking_app.packing_list p
+          WHERE p.gdn_id = g.id
+        ) AS shipping_type,
 
         g.date,
         g.cartoons,
@@ -552,35 +564,77 @@ exports.getAllGDN = async (req, res) => {
 
       LEFT JOIN freight_tracking_app.wharf_staff wharf
         ON g.wharf_staff_id = wharf.id
-
-      
     `;
+
+    const conditions = [];
     const params = [];
 
+    // Optional status filter
     if (status) {
-      query += ` WHERE g.status = ?`;
+      conditions.push("g.status = ?");
       params.push(status);
     }
-    query += `ORDER BY g.id DESC;`;
+
+    // Optional shipping type filter
+    if (typeof shipping_type === "string" && shipping_type.trim()) {
+      const type = shipping_type.trim().toLowerCase();
+
+      if (type === "sea") {
+        // SEA includes both FCL and LCL
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM freight_tracking_app.packing_list p
+            WHERE p.gdn_id = g.id
+            AND UPPER(p.shipping_mode) IN ('FCL', 'LCL')
+          )
+        `);
+      } else if (type === "air") {
+        // AIR only
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM freight_tracking_app.packing_list p
+            WHERE p.gdn_id = g.id
+            AND UPPER(p.shipping_mode) = 'AIR'
+          )
+        `);
+      }
+      // No valid shipping type: no shipping filter applied
+    }
+
+    // Apply conditions only when provided
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
+    }
+
+    // Latest GDNs first
+    query += ` ORDER BY g.id DESC;`;
 
     const [rows] = await db.query(query, params);
 
+    // Handle JSON fields returned by MySQL
+    const parseJsonArray = (value) => {
+      if (Array.isArray(value)) {
+        return value;
+      }
+
+      if (typeof value === "string") {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+          return [];
+        }
+      }
+
+      return [];
+    };
+
     const result = rows.map((row) => ({
       ...row,
-
-      // mysql2 normally returns JSON columns as objects,
-      // but handle string JSON as well.
-      packing_lists: Array.isArray(row.packing_lists)
-        ? row.packing_lists
-        : typeof row.packing_lists === "string"
-          ? JSON.parse(row.packing_lists)
-          : [],
-
-      measurements: Array.isArray(row.measurements)
-        ? row.measurements
-        : typeof row.measurements === "string"
-          ? JSON.parse(row.measurements)
-          : [],
+      packing_lists: parseJsonArray(row.packing_lists),
+      measurements: parseJsonArray(row.measurements),
     }));
 
     return res.status(200).json({
