@@ -541,12 +541,13 @@ exports.updatePackingList = async (req, res) => {
 };
 
 // GET ALL Packing Lists
+
 exports.getAllPackingLists = async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, type } = req.query;
 
     let query = `
-      SELECT 
+      SELECT
           pl.id AS packing_list_id,
           pl.packing_list_no,
           c.name AS client_name,
@@ -599,11 +600,36 @@ exports.getAllPackingLists = async (req, res) => {
           ON po.packing_list_id = pl.id
     `;
 
+    const conditions = [];
     const params = [];
 
+    // Filter by status
     if (status) {
-      query += ` WHERE pl.status = ?`;
+      conditions.push("pl.status = ?");
       params.push(status);
+    }
+
+    // Filter by shipping type
+    if (type) {
+      const shippingType = String(type).toUpperCase();
+
+      if (shippingType === "AIR") {
+        conditions.push("UPPER(pl.shipping_mode) = ?");
+        params.push("AIR");
+      } else if (shippingType === "SEA") {
+        conditions.push("UPPER(pl.shipping_mode) IN (?, ?)");
+        params.push("FCL", "LCL");
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid type. Allowed values: air, sea",
+        });
+      }
+    }
+
+    // Apply filters
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
     }
 
     query += ` ORDER BY pl.id DESC`;
@@ -651,12 +677,14 @@ exports.getAllPackingLists = async (req, res) => {
       }
     });
 
-    res.json({
+    return res.status(200).json({
       success: true,
       data: Array.from(map.values()),
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("Error fetching packing lists:", err);
+
+    return res.status(500).json({
       success: false,
       message: err.message,
     });
