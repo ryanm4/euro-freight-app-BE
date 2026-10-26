@@ -442,37 +442,52 @@ exports.getAllShipments = async (req, res) => {
     const shipmentConditions = [];
     const shipmentParams = [];
 
-    // status comes from shipments table
+    // Status comes from shipments table
     if (status) {
       shipmentConditions.push("s.status = ?");
       shipmentParams.push(status);
     }
 
     // ============================================
-    // 2. Get Shipment IDs matching shipping_mode
-    //    from packing_list
+    // 2. Filter Shipments by Shipping Type
+    //    Shipping mode comes from packing_list
     // ============================================
 
     let shippingModeShipmentIds = null;
 
     if (shipping_mode) {
+      const normalizedShippingMode = String(shipping_mode).trim().toLowerCase();
+
+      let shippingModes = [];
+
+      if (normalizedShippingMode === "sea") {
+        // Sea shipments can have FCL or LCL packing lists
+        shippingModes = ["FCL", "LCL"];
+      } else if (normalizedShippingMode === "air") {
+        // Air shipments
+        shippingModes = ["AIR"];
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid shipping type. Allowed values: sea, air",
+        });
+      }
+
       const [rows] = await db.query(
         `
-      SELECT DISTINCT grn.shipment_id
-      FROM freight_tracking_app.packing_list pl
-
-      INNER JOIN freight_tracking_app.goods_receive_notes grn
-        ON pl.grn_id = grn.id
-
-      WHERE pl.shipping_mode = ?
-        AND grn.shipment_id IS NOT NULL
-    `,
-        [shipping_mode],
+        SELECT DISTINCT grn.shipment_id
+        FROM freight_tracking_app.packing_list pl
+        INNER JOIN freight_tracking_app.goods_receive_notes grn
+          ON pl.grn_id = grn.id
+        WHERE UPPER(TRIM(pl.shipping_mode)) IN (?)
+          AND grn.shipment_id IS NOT NULL
+        `,
+        [shippingModes],
       );
 
       shippingModeShipmentIds = rows.map((row) => row.shipment_id);
 
-      // No shipments found for shipping mode
+      // No shipments found for the requested shipping type
       if (shippingModeShipmentIds.length === 0) {
         return res.status(200).json({
           success: true,
@@ -490,43 +505,43 @@ exports.getAllShipments = async (req, res) => {
     // ============================================
 
     let shipmentQuery = `
-  SELECT
-    s.id,
-    s.vessel_name,
-    s.status,
-    s.voyage_number,
-    s.origin_port,
-    s.discharge_port,
-    s.final_place_of_delivery,
-    s.etd_colombo,
-    s.eta_discharge_port,
-    s.eta_final_delivery_place,
-    s.flight_number,
-    s.origin,
-    s.destination,
-    s.etd_origin,
-    s.eta_destination,
-    s.mbl_mawb_no,
-    s.airline_shipping_line,
-    s.container_number,
-    s.container_size,
-    s.final_seal_no,
-    s.created_by,
-    s.created_on,
-    s.updated_by,
-    s.updated_on
-  FROM freight_tracking_app.shipments s
-`;
+      SELECT
+        s.id,
+        s.vessel_name,
+        s.status,
+        s.voyage_number,
+        s.origin_port,
+        s.discharge_port,
+        s.final_place_of_delivery,
+        s.etd_colombo,
+        s.eta_discharge_port,
+        s.eta_final_delivery_place,
+        s.flight_number,
+        s.origin,
+        s.destination,
+        s.etd_origin,
+        s.eta_destination,
+        s.mbl_mawb_no,
+        s.airline_shipping_line,
+        s.container_number,
+        s.container_size,
+        s.final_seal_no,
+        s.created_by,
+        s.created_on,
+        s.updated_by,
+        s.updated_on
+      FROM freight_tracking_app.shipments s
+    `;
 
     if (shipmentConditions.length > 0) {
       shipmentQuery += `
-    WHERE ${shipmentConditions.join(" AND ")}
-  `;
+        WHERE ${shipmentConditions.join(" AND ")}
+      `;
     }
 
     shipmentQuery += `
-  ORDER BY s.id DESC
-`;
+      ORDER BY s.id DESC
+    `;
 
     const [shipmentRows] = await db.query(shipmentQuery, shipmentParams);
 
@@ -538,7 +553,7 @@ exports.getAllShipments = async (req, res) => {
       });
     }
 
-    const shipmentIds = shipmentRows.map((s) => s.id);
+    const shipmentIds = shipmentRows.map((shipment) => shipment.id);
 
     // ============================================
     // 4. Get GRNs + Client/Manufacture/Forwarder
@@ -546,67 +561,67 @@ exports.getAllShipments = async (req, res) => {
 
     const [grnRows] = await db.query(
       `
-    SELECT
-      grn.*,
+      SELECT
+        grn.*,
 
-      -- Client
-      client.id AS client_id,
-      client.name AS client_name,
-      client.address AS client_address,
-      client.contact_no AS client_contact_no,
-      client.contact_person AS client_contact_person,
-      client.status AS client_status,
-      client.type AS client_type,
+        -- Client
+        client.id AS client_id,
+        client.name AS client_name,
+        client.address AS client_address,
+        client.contact_no AS client_contact_no,
+        client.contact_person AS client_contact_person,
+        client.status AS client_status,
+        client.type AS client_type,
 
-      -- Manufacture
-      manufacture.id AS manufacture_id,
-      manufacture.name AS manufacture_name,
-      manufacture.address AS manufacture_address,
-      manufacture.contact_no AS manufacture_contact_no,
-      manufacture.contact_person AS manufacture_contact_person,
-      manufacture.status AS manufacture_status,
-      manufacture.type AS manufacture_type,
+        -- Manufacture
+        manufacture.id AS manufacture_id,
+        manufacture.name AS manufacture_name,
+        manufacture.address AS manufacture_address,
+        manufacture.contact_no AS manufacture_contact_no,
+        manufacture.contact_person AS manufacture_contact_person,
+        manufacture.status AS manufacture_status,
+        manufacture.type AS manufacture_type,
 
-      -- Forwarder
-      forwarder.id AS forwarder_id,
-      forwarder.name AS forwarder_name,
-      forwarder.address AS forwarder_address,
-      forwarder.contact_no AS forwarder_contact_no,
-      forwarder.contact_person AS forwarder_contact_person,
-      forwarder.status AS forwarder_status,
-      forwarder.type AS forwarder_type
+        -- Forwarder
+        forwarder.id AS forwarder_id,
+        forwarder.name AS forwarder_name,
+        forwarder.address AS forwarder_address,
+        forwarder.contact_no AS forwarder_contact_no,
+        forwarder.contact_person AS forwarder_contact_person,
+        forwarder.status AS forwarder_status,
+        forwarder.type AS forwarder_type
 
-    FROM freight_tracking_app.goods_receive_notes grn
+      FROM freight_tracking_app.goods_receive_notes grn
 
-    LEFT JOIN freight_tracking_app.clients client
-      ON grn.client_id = client.id
+      LEFT JOIN freight_tracking_app.clients client
+        ON grn.client_id = client.id
 
-    LEFT JOIN freight_tracking_app.clients manufacture
-      ON grn.manufacture_id = manufacture.id
+      LEFT JOIN freight_tracking_app.clients manufacture
+        ON grn.manufacture_id = manufacture.id
 
-    LEFT JOIN freight_tracking_app.clients forwarder
-      ON grn.forwarder_id = forwarder.id
+      LEFT JOIN freight_tracking_app.clients forwarder
+        ON grn.forwarder_id = forwarder.id
 
-    WHERE grn.shipment_id IN (?)
+      WHERE grn.shipment_id IN (?)
 
-    ORDER BY grn.id
-  `,
+      ORDER BY grn.id
+      `,
       [shipmentIds],
     );
 
     const grnIds = grnRows.map((grn) => grn.id);
 
     // ============================================
-    // 5. Get Packing Lists linked to GRNs
+    // 5. Get Packing Lists Linked to GRNs
     // ============================================
 
     const [packingListRows] = grnIds.length
       ? await db.query(
           `
-        SELECT *
-        FROM freight_tracking_app.packing_list
-        WHERE grn_id IN (?)
-      `,
+          SELECT *
+          FROM freight_tracking_app.packing_list
+          WHERE grn_id IN (?)
+          `,
           [grnIds],
         )
       : [[]];
@@ -626,10 +641,10 @@ exports.getAllShipments = async (req, res) => {
     const [gdnRows] = gdnIds.length
       ? await db.query(
           `
-        SELECT *
-        FROM freight_tracking_app.goods_deliver_notes
-        WHERE id IN (?)
-      `,
+          SELECT *
+          FROM freight_tracking_app.goods_deliver_notes
+          WHERE id IN (?)
+          `,
           [gdnIds],
         )
       : [[]];
@@ -733,7 +748,7 @@ exports.getAllShipments = async (req, res) => {
         : null;
 
       // --------------------------------------------
-      // Remove joined fields
+      // Remove Joined Fields
       // --------------------------------------------
 
       const {
